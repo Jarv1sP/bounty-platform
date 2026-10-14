@@ -1,1 +1,42 @@
-{% extends 'base.html' %}{% from 'components/friend.html' import friend %}{% block content %}<div class="auth-layout"><div class="auth-friend">{{ friend() }}</div><section class="panel"><h1>{{ '创建团队账号' if mode=='register' else '登录' }}</h1><form method="post"><input type="hidden" name="csrf" value="{{ session.csrf }}"><label>用户名<input name="name" required maxlength="40" autocomplete="username" value="{{ request.form.get('name','') }}"></label><label>密码<input type="password" name="password" required minlength="8" maxlength="128" autocomplete="{{ 'new-password' if mode=='register' else 'current-password' }}" placeholder="至少 8 个字符"></label><button class="primary wide">{{ '注册并进入' if mode=='register' else '登录' }}</button></form><p class="muted">{{ '已有账号？' if mode=='register' else '第一次使用？' }} <a href="{{ url_for('auth',mode='login' if mode=='register' else 'register') }}">{{ '去登录' if mode=='register' else '创建账号' }}</a></p></section></div>{% endblock %}
+{% extends 'base.html' %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import logo, csrf %}
+{% block title %}{{ '登录' if mode == 'login' else '注册' }} · 搭把手{% endblock %}
+{% block body_class %}page-auth{% endblock %}
+{% block content %}
+<div class="auth">
+  <section class="auth-art">
+    <span class="logo">{{ logo() }}搭把手</span>
+    {# 「解散！」倒着放：几块几何碎片从四面飞来拼成一幅图 #}
+    <svg class="compose" viewBox="0 0 440 240" aria-hidden="true">
+      {% for shape, dx, dy, r in [
+        ('<circle cx="300" cy="96" r="70" fill="#E54465"/>', '60px', '-50px', '30deg'),
+        ('<rect x="150" y="120" width="104" height="104" fill="#F2B700"/>', '-80px', '40px', '-40deg'),
+        ('<path d="M268 226A86 86 0 0 1 354 140V226Z" fill="#fff"/>', '70px', '60px', '50deg'),
+        ('<path d="M80 226 150 156V226Z" fill="#00A27A"/>', '-60px', '50px', '-60deg'),
+        ('<rect x="366" y="36" width="14" height="190" rx="7" fill="#00AEE0"/>', '40px', '-70px', '20deg'),
+        ('<circle cx="206" cy="78" r="18" fill="#1B1D2A"/>', '-30px', '-60px', '0deg'),
+        ('<circle cx="404" cy="214" r="10" fill="#F39800"/>', '50px', '30px', '0deg')] %}
+      <g class="pc" style="--i:{{ loop.index0 }};--dx:{{ dx }};--dy:{{ dy }};--r:{{ r }}">{{ shape|safe }}</g>
+      {% endfor %}
+    </svg>
+    <div>
+      <h1>团队里的活，大家搭把手。</h1>
+      <p>挑一个想做的任务，做完拿勋章、涨经验。任务越重，勋章填得越满。</p>
+    </div>
+    <div class="auth-medals">{% for key in medals %}{{ medal(key) }}{% endfor %}</div>
+  </section>
+  <section class="auth-form">
+    <form method="post" action="{{ url_for('auth', mode=mode) }}">
+      {{ csrf() }}
+      <h2>{{ '欢迎回来' if mode == 'login' else '加入团队' }}</h2>
+      {% for category, message in get_flashed_messages(with_categories=true) %}<p class="notice {{ category }}" role="alert" style="animation:none">{{ message }}</p>{% endfor %}
+      <label class="field"><span>用户名</span><input name="name" required maxlength="40" autocomplete="username" value="{{ request.form.get('name', '') }}"></label>
+      <label class="field"><span>密码<small>8–128 个字符</small></span><input type="password" name="password" required minlength="8" maxlength="128" autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}"></label>
+      <button class="btn btn-big">{{ '登录' if mode == 'login' else '注册并进入' }}</button>
+      <p class="switch">{% if mode == 'login' %}第一次来？<a href="{{ url_for('auth', mode='register') }}">注册一个账号</a>{% else %}已经有账号？<a href="{{ url_for('auth', mode='login') }}">直接登录</a>{% endif %}</p>
+      {% if mode == 'login' %}<p class="demo">演示数据库的账号：发布者、认领人、陈默、王瑶……密码都是 demo12345。</p>{% endif %}
+    </form>
+  </section>
+</div>
+{% endblock %}

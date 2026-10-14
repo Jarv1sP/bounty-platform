@@ -14,6 +14,8 @@ def main():
     if sys.version_info < (3, 10):
         raise SystemExit('Python 3.10 or newer is required.')
     parser = argparse.ArgumentParser(description='Bounty platform (local only)')
+    parser.add_argument('--host', default='127.0.0.1',
+                        help='Listen address; use 0.0.0.0 only on a trusted team network')
     parser.add_argument('--port', type=int, default=5080)
     parser.add_argument('--data-dir', type=Path, default=ROOT / 'instance')
     parser.add_argument('--no-browser', action='store_true')
@@ -26,12 +28,15 @@ def main():
     except ImportError as error:
         raise SystemExit('Dependencies are missing. Run: python -m pip install -r requirements.txt') from error
     app = create_app({'DATA_DIR': str(args.data_dir.resolve())})
-    url = f'http://127.0.0.1:{args.port}'
+    local = args.host in ('127.0.0.1', 'localhost', '0.0.0.0', '::')
+    url = f'http://127.0.0.1:{args.port}' if local else f'http://{args.host}:{args.port}'
     try:
-        server = make_server('127.0.0.1', args.port, app, threaded=True)
+        server = make_server(args.host, args.port, app, threaded=True)
     except (OSError, SystemExit):
         raise SystemExit(f'Cannot start on port {args.port}. Try: python run.py --port {args.port + 1}')
     print(f'\nBounty platform: {url}\nData: {app.config["DATABASE"]}\nPress Ctrl+C to stop.\n', flush=True)
+    if args.host not in ('127.0.0.1', 'localhost'):
+        print('Listening beyond this computer: anyone who can reach this address can open the sign-in page.\n', flush=True)
     if not args.no_browser:
         opener = threading.Timer(.4, lambda: webbrowser.open(url))
         opener.daemon = True

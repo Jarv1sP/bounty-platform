@@ -1,2 +1,145 @@
-{% extends 'base.html' %}{% from 'components/medal.html' import medal with context %}{% block title %}{{ task.title }} · 搭把手{% endblock %}{% macro action_form(action,label,placeholder='',required=false) %}<form method="post" action="{{ url_for('task_action',task_id=task.id,action=action) }}" class="action-form" data-action-form="{{ action }}"><input type="hidden" name="csrf" value="{{ session.csrf }}">{% if placeholder %}<label>{{ placeholder }}<textarea name="body" rows="3" maxlength="10000" {{ 'required' if required }}></textarea></label>{% endif %}<button class="{{ 'secondary' if action=='return' else 'primary' }}"><span class="button-label">{{ label }}</span><span class="send-mark" aria-hidden="true">↗</span></button></form>{% endmacro %}{% block content %}<a class="back" href="{{ url_for('index') }}">← 返回任务大厅</a><section class="page-heading detail-heading"><div><div class="row start"><span class="tag">{{ task.category }}</span><span class="badge {{ task.status }}">{{ statuses[task.status] }}</span><span class="muted">#{{ task.id }}</span></div><h1>{{ task.title }}</h1><p class="muted">{{ task.owner_name }} 发布于 {{ task.created_at|date }}</p></div></section>{% if feedback %}<div class="action-receipt" data-confirmed-action="{{ feedback.action }}" role="status"><span class="receipt-stamp">{{ {'claim':'已认领','submit':'已提交','accept':'验收通过','return':'待修改'}[feedback.action] }}</span><span>{{ {'claim':'认领人：' ~ task.assignee_name,'submit':'等待发布者验收','accept':'勋章已记入认领人的收藏','return':'修改后可重新提交'}[feedback.action] }}</span><button type="button" class="link" data-skip-receipt hidden>跳过动画</button></div>{% endif %}<div class="detail-grid"><div><section class="panel"><h2>任务说明</h2><div class="prose">{{ task.description|urlize(target='_blank', rel='noopener noreferrer') }}</div><hr><h2>交付要求</h2><div class="prose">{{ task.requirements|urlize(target='_blank', rel='noopener noreferrer') }}</div></section><section class="panel"><h2>讨论与交付记录 <small>{{ events|length }}</small></h2>{% for event in events %}<article class="event event-{{ event.kind }}"><div class="row"><strong>{{ event.name }} <span class="event-kind">{{ kinds[event.kind] }}</span></strong><small>{{ event.created_at|date }}</small></div><div class="prose">{{ event.body|urlize(target='_blank', rel='noopener noreferrer') }}</div></article>{% else %}<p class="muted">暂无讨论或交付记录。</p>{% endfor %}{{ action_form('comment','发送讨论','讨论内容',true) }}</section></div><aside><section class="panel"><p class="muted">任务勋章</p><div class="detail-medal">{{ medal(medal_key(task),'large') }}<h2>{{ medals[medal_key(task)].name }}</h2><p class="muted">{{ importance_labels[task.importance] }} · {{ urgency_labels[task.urgency] }}</p></div>{% if award %}<div class="hint">已授予 {{ task.assignee_name }}<br><small>{{ award.awarded_at|date }}</small></div>{% else %}<p class="fine">验收通过后授予认领人。</p>{% endif %}<dl><dt>截止时间</dt><dd>{{ task.deadline|date }}{% if task.deadline <= current_time %}<span class="overdue">已过截止时间</span>{% endif %}</dd><dt>发布者</dt><dd>{{ task.owner_name }}</dd><dt>认领人</dt><dd>{{ task.assignee_name or '待认领' }}</dd></dl>
-{% if task.status=='open' %}{% if task.owner_id==g.user.id %}<div class="hint">这是你发布的任务，等待其他成员认领。</div>{% elif task.deadline > current_time %}{{ action_form('claim','认领这个任务') }}{% else %}<div class="hint">认领已截止。</div>{% endif %}{% elif task.status=='active' and task.assignee_id==g.user.id %}{{ action_form('submit','提交验收','成果说明与交付链接',true) }}{% elif task.status=='review' %}{% if task.owner_id==g.user.id %}{{ action_form('accept','验收通过','验收说明（选填）') }}{{ action_form('return','退回修改','退回原因与修改要求',true) }}{% else %}<div class="hint">成果已提交，等待发布者验收。</div>{% endif %}{% endif %}</section></aside></div>{% endblock %}
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import ava, csrf %}
+{% block title %}{{ task.title }} · 搭把手{% endblock %}
+{% block body_class %}page-detail{% endblock %}
+{% block content %}
+{% set key = medal_key(task) %}
+{% set hue = medals[key].hue %}
+{% set owner = task.owner_id == g.user.id %}
+{% set assignee = task.assignee_id == g.user.id %}
+{% set left = due_label(task.deadline) %}
+{% set order = ['open', 'active', 'review', 'done'] %}
+{% set step = order.index(task.status) %}
+{% set returns = events|selectattr('kind', 'equalto', 'return')|list %}
+<div class="wrap detail">
+  <a class="back" href="{{ url_for('index') }}">{{ icon('back') }}回到发现</a>
+
+  <section class="qband" style="--hue:{{ hue }};--on:{{ '#1B1D2A' if hue in ('#F2B700', '#F39800', '#00AEE0') else '#fff' }}">
+    <svg class="pick-art" viewBox="0 0 400 180" preserveAspectRatio="xMaxYMid slice" aria-hidden="true"><path d="M300 180 360 40H400V180Z" fill="#fff"/><path d="M268 180 328 40" stroke="#1B1D2A" stroke-width="8" stroke-linecap="round"/><circle cx="236" cy="58" r="11" fill="#1B1D2A"/></svg>
+    <div>
+      {% if task.status == 'open' and new_kind and not owner %}<span class="sticker" style="--sticker:#F39800"><i></i>能解锁「{{ medals[key].name }}」</span>{% endif %}
+      <h1>{{ task.title }}</h1>
+      <div class="chips">
+        {% if task.project %}<span>{{ task.project }}</span>{% endif %}
+        <span>{{ effort_labels[task.importance] }}</span>
+        {% if task.urgency == 'urgent' %}<span>加急</span>{% endif %}
+        <span>{{ statuses[task.status] }}</span>
+        <span>{{ task.owner_name }} 发布</span>
+      </div>
+    </div>
+    <div class="qband-reward">{{ medal(key, 'anim', label='完成可得 ' ~ medals[key].name) }}<div><b>完成可得「{{ medals[key].name }}」</b><br><span class="xp">+{{ task_xp(key) }} 经验</span></div></div>
+  </section>
+
+  <ol class="flow panel" aria-label="进度">
+    {% for name in order %}
+    <li class="{{ 'done' if loop.index0 < step or task.status == 'done' else ('now' if loop.index0 == step else '') }}">
+      <i>{{ '✓' if loop.index0 < step or task.status == 'done' else loop.index }}</i>{{ statuses[name] }}
+      <small>{% if name == 'active' and returns %}退回过 {{ returns|length }} 次{% elif name == 'open' %}{{ task.created_at|md }} 发布{% elif name == 'active' and task.assignee_name %}{{ task.assignee_name }}{% endif %}</small>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <div class="dgrid">
+    <div class="dmain">
+      {% if why %}
+      <section class="why block panel"><h2 class="sec">为什么推荐给你</h2>
+        <ul>{% for reason in why %}<li><i style="background:{{ ['#F39800', '#00A27A', '#2866B1'][loop.index0] }}">{{ loop.index }}</i>{{ reason[1] }}</li>{% endfor %}</ul>
+      </section>
+      {% endif %}
+      <section class="block panel"><h2 class="sec">委托人说</h2>
+        <p class="ask">{{ task.description }}<cite>{{ task.owner_name }} · {{ task.created_at|md }} 发布</cite></p>
+      </section>
+      <section class="rules panel">
+        <div><h2 class="sec">交付要求</h2><p>{{ task.requirements }}</p>
+          {% if tags %}<div class="tags" style="margin-top:12px">{% for tag in tags %}<a class="tag" href="{{ url_for('index', tag=tag) }}">{{ tag }}</a>{% endfor %}</div>{% endif %}</div>
+        <div><h2 class="sec">验收规则</h2><ul><li>不通过时，委托人必须写明原因</li><li>任务回到「进行中」，改好后再次提交</li><li>验收通过后，勋章和经验自动给认领人</li></ul></div>
+      </section>
+      <section class="block panel"><h2 class="sec">动态与讨论<span>{{ events|length }}</span></h2>
+        {% if events %}
+        <ol class="timeline">
+          {% for event in events %}
+          <li class="ev event-{{ event.kind }}">{{ ava(event.name, event.user_id) }}<div>
+            <div class="ev-meta"><b>{{ event.name }}</b><em>{{ kinds.get(event.kind, event.kind) }}</em><time>{{ event.created_at|date }}</time></div>
+            <p>{{ event.body }}</p></div></li>
+          {% endfor %}
+        </ol>
+        {% else %}<p class="empty">还没有讨论。认领前有疑问，可以先在这里问。</p>{% endif %}
+        <form class="comment" method="post" action="{{ url_for('task_action', task_id=task.id, action='comment') }}" data-action-form="comment">
+          {{ csrf() }}<textarea name="body" required maxlength="10000" placeholder="{{ '认领前有疑问，可以先在这里问' if task.status == 'open' else '在这里讨论，相关的人都会看到' }}" aria-label="讨论内容"></textarea>
+          <button class="btn btn-line">发表</button>
+        </form>
+      </section>
+    </div>
+
+    <aside class="dside">
+      {% if feedback %}
+      {% set lines = {
+        'claim': ('认领', '已认领 · ' ~ (task.assignee_name or g.user.name) ~ '，开工！', '截止前提交成果；做不完记得在讨论区说一声。'),
+        'submit': ('提交', '已提交 · 等 ' ~ task.owner_name ~ ' 验收', task.assignee_name ~ ' 的成果已经送到，验收通过就能拿到勋章。'),
+        'return': ('退回', '已退回给 ' ~ task.assignee_name, '原因写在动态里，' ~ task.assignee_name ~ ' 改好会再提交。'),
+        'accept': ('通过', '验收通过 · 勋章已授予 ' ~ task.assignee_name, task.assignee_name ~ ' 下次打开信箱就能看到你的夸奖。'),
+      } %}
+      {% set line = lines[feedback.action] %}
+      <div class="receipt" data-confirmed-action="{{ feedback.action }}" role="status"><span class="stamp">{{ line[0] }}</span><div><b>{{ line[1] }}</b><small>{{ line[2] }}</small></div></div>
+      {% endif %}
+
+      {% if task.status == 'open' and not owner %}
+      <form class="act panel" method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-action-form="claim">
+        {{ csrf() }}<h3>想接这个任务？</h3>
+        <div class="est"><div><small>预计投入</small><b>{{ effort_labels[task.importance] }}</b></div><div><small>截止</small><b class="{{ 'soon' if left[1] }}">{{ left[0] }}</b></div></div>
+        <button class="btn">认领，我来做</button>
+        <p>认领后其他人就不能再认领。做完提交成果，{{ task.owner_name }} 验收通过就算完成。</p>
+      </form>
+      {% elif task.status == 'open' %}
+      <div class="act panel"><h3>等人认领</h3><p>任务已经出现在大家的「发现」里，会优先推荐给做过相似任务的同学。</p></div>
+      {% elif task.status == 'active' and assignee %}
+      <form class="act panel" method="post" action="{{ url_for('task_action', task_id=task.id, action='submit') }}" data-action-form="submit">
+        {{ csrf() }}<h3>提交成果</h3>
+        <p>{% if returns %}上次退回的原因：{{ returns[-1].body }}{% else %}写清成果放在哪、做了什么，{{ task.owner_name }} 会按交付要求验收。{% endif %}</p>
+        <textarea name="body" required maxlength="10000" placeholder="成果链接和说明" aria-label="成果说明"></textarea>
+        <button class="btn">提交给 {{ task.owner_name }} 验收</button>
+        <div class="ghost-medal">{{ medal(key, ghost=true) }}验收通过后，这枚勋章才会变成你的。</div>
+      </form>
+      {% elif task.status == 'review' and owner %}
+      <div class="act panel">
+        <h3>验收 {{ task.assignee_name }} 的成果</h3>
+        <form method="post" action="{{ url_for('task_action', task_id=task.id, action='accept') }}" data-action-form="accept">
+          {{ csrf() }}<p>通过的话，可以选一句夸奖，会写在勋章背面。</p>
+          <div class="praise">{% for text in praise_options %}<button type="button" class="chip" data-praise="{{ text }}">{{ text }}</button>{% endfor %}</div>
+          <textarea name="body" maxlength="10000" placeholder="写一句夸奖（可不填）" aria-label="夸奖" style="margin-top:10px;min-height:64px"></textarea>
+          <button class="btn" style="width:100%;margin-top:10px">验收通过</button>
+        </form>
+        <form method="post" action="{{ url_for('task_action', task_id=task.id, action='return') }}" data-action-form="return">
+          {{ csrf() }}<textarea name="body" required maxlength="10000" placeholder="不通过的话，写清楚要改什么" aria-label="退回原因" style="min-height:64px"></textarea>
+          <button class="btn btn-line" style="width:100%;margin-top:10px">退回修改</button>
+        </form>
+      </div>
+      {% elif task.status in ('active', 'review') %}
+      <div class="act panel">
+        <h3>{% if task.status == 'active' %}{{ task.assignee_name }} 正在做{% else %}等 {{ task.owner_name }} 验收{% endif %}</h3>
+        <p>{% if assignee %}已经提交，验收通过后勋章和 {{ task_xp(key) }} 经验会进你的信箱。{% else %}有问题可以在讨论区留言。{% endif %}</p>
+        {% if assignee %}<div class="ghost-medal">{{ medal(key, ghost=true) }}这枚还是虚线的，验收通过就变实心。</div>{% endif %}
+      </div>
+      {% else %}
+      <div class="done-card panel">
+        {{ medal(key) }}
+        <b>已授予 {{ task.assignee_name }}</b>
+        <small>「{{ medals[key].name }}」 · +{{ task_xp(key) }} 经验{% if award %} · {{ award.awarded_at|md }}{% endif %}</small>
+        {% if not assignee %}
+        <form method="post" action="{{ url_for('clap_task', task_id=task.id) }}" data-clap>{{ csrf() }}<button class="clap{{ ' on' if claps.mine }}" {% if claps.mine %}aria-pressed="true"{% endif %}>{{ icon('clap') }}<span>{{ claps.n }}</span></button></form>
+        {% else %}<span class="clap-count" style="margin:0">{{ icon('clap') }}{{ claps.n }} 次鼓掌</span>{% endif %}
+      </div>
+      {% endif %}
+
+      <dl class="tbl panel">
+        <div><dt>委托人</dt><dd>{{ ava(task.owner_name, task.owner_id) }}{{ task.owner_name }}</dd></div>
+        <div><dt>认领人</dt><dd>{% if task.assignee_name %}{{ ava(task.assignee_name, task.assignee_id) }}{{ task.assignee_name }}{% else %}<span class="muted">还没有人</span>{% endif %}</dd></div>
+        {% if task.project %}<div><dt>项目</dt><dd><a href="{{ url_for('index', project=task.project, status='') }}">{{ task.project }}</a></dd></div>{% endif %}
+        <div><dt>截止</dt><dd>{{ left[0] if task.status != 'done' else '已完成' }}<small>{{ task.deadline|date }}</small></dd></div>
+      </dl>
+    </aside>
+  </div>
+</div>
+{% endblock %}

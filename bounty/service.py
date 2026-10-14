@@ -1,8 +1,14 @@
-from datetime import datetime, timezone
+import os
+import re
+from datetime import datetime, timedelta, timezone
 from .db import connect
 from .honors import IMPORTANCE, URGENCY, medal_key
 
-CATEGORIES = ('设计', '开发', '文档', '调研', '运营', '其他')
+# Suggested starter tags only: teams add their own tags and projects freely, nothing is limited to this list.
+CATEGORIES = ('实验', '数据', '论文', '代码', '讲解', '杂务')
+MAX_TAGS = 5
+# 团队所在时区：表单里填的时间、页面上显示的时间都按它来（默认北京时间，可用 BOUNTY_TZ_OFFSET 改）。
+TEAM_TZ = timezone(timedelta(hours=float(os.environ.get('BOUNTY_TZ_OFFSET', '8'))))
 STATUSES = {'open': '待认领', 'active': '进行中', 'review': '待验收', 'done': '已完成'}
 KINDS = {'claim': '认领任务', 'submit': '提交成果', 'accept': '验收通过', 'return': '退回修改', 'comment': '讨论', 'settle': '历史结算记录'}
 
@@ -21,29 +27,50 @@ def required(data, key, label, limit=10000):
     return value
 
 
+def parse_tags(raw):
+    """Split free-form tags on commas, enumeration marks or spaces; keep order, drop duplicates."""
+    tags = []
+    for part in re.split(r'[,，、;；\s]+', raw or ''):
+        tag = part.strip().lstrip('#')
+        if tag and tag not in tags:
+            if len(tag) > 16:
+                raise InvalidAction('每个标签不能超过 16 个字。')
+            tags.append(tag)
+    if len(tags) > MAX_TAGS:
+        raise InvalidAction(f'最多 {MAX_TAGS} 个标签。')
+    return tags
+
+
 def create_task(path, user_id, data):
     title = required(data, 'title', '标题', 120)
     description = required(data, 'description', '任务说明')
     requirements = required(data, 'requirements', '交付要求')
-    category = data.get('category')
+    # Older forms and scripts send a single "category"; it simply becomes the first tag.
+    tags = parse_tags(data.get('tags') or data.get('category', ''))
+    project = (data.get('project') or '').strip()
     importance = data.get('importance')
     urgency = data.get('urgency')
-    if category not in CATEGORIES or importance not in IMPORTANCE or urgency not in URGENCY:
-        raise InvalidAction('请选择有效的分类、任务分量和紧急程度。')
+    if not tags:
+        raise InvalidAction('至少写一个标签，方便同学找到这个任务。')
+    if len(project) > 30:
+        raise InvalidAction('项目名不能超过 30 个字。')
+    if importance not in IMPORTANCE or urgency not in URGENCY:
+        raise InvalidAction('请选择有效的任务分量和紧急程度。')
     try:
         deadline = datetime.fromisoformat(data.get('deadline', ''))
         if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=timezone.utc)
+            deadline = deadline.replace(tzinfo=TEAM_TZ)
         deadline = deadline.astimezone(timezone.utc).isoformat(timespec='seconds')
         if deadline <= now():
             raise ValueError()
     except (ValueError, OverflowError):
-        raise InvalidAction('请选择未来的截止时间（UTC）。')
+        raise InvalidAction('请选择一个还没到的截止时间。')
     with connect(path, write=True) as db:
         cursor = db.execute('''INSERT INTO tasks
-            (title,description,category,importance,urgency,deadline,requirements,owner_id,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?)''',
-            (title, description, category, importance, urgency, deadline, requirements, user_id, now()))
+            (title,description,category,project,importance,urgency,deadline,requirements,owner_id,created_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?)''',
+            (title, description, tags[0], project or None, importance, urgency, deadline, requirements, user_id, now()))
+        db.executemany('INSERT INTO task_tags (task_id,tag) VALUES (?,?)', [(cursor.lastrowid, tag) for tag in tags])
         return cursor.lastrowid
 
 
@@ -84,3 +111,32 @@ def act(path, task_id, user_id, action, body=''):
             raise InvalidAction('未知操作。')
         db.execute('INSERT INTO events (task_id,user_id,kind,body,created_at) VALUES (?,?,?,?,?)',
                    (task_id, user_id, action, body, now()))
+
+
+def clap(path, task_id, user_id):
+    """Teammates applaud a finished task once each; the person who did it cannot applaud themselves."""
+    with connect(path, write=True) as db:
+        task = db.execute('SELECT status,assignee_id FROM tasks WHERE id=?', (task_id,)).fetchone()
+        if not task or task['status'] != 'done':
+            raise InvalidAction('只能为已完成的任务鼓掌。')
+        if task['assignee_id'] == user_id:
+            raise InvalidAction('不能给自己鼓掌。')
+        db.execute('INSERT OR IGNORE INTO claps (task_id,user_id,created_at) VALUES (?,?,?)', (task_id, user_id, now()))
+        return db.execute('SELECT COUNT(*) FROM claps WHERE task_id=?', (task_id,)).fetchone()[0]
+
+
+def set_interests(path, user_id, raw):
+    """What someone wants to work on; seeds recommendations before they have finished anything."""
+    tags = parse_tags(raw)
+    with connect(path, write=True) as db:
+        db.execute('DELETE FROM interests WHERE user_id=?', (user_id,))
+        db.executemany('INSERT INTO interests (user_id,tag) VALUES (?,?)', [(user_id, tag) for tag in tags])
+    return tags
+
+
+def dismiss(path, task_id, user_id):
+    """"Not for me": hides the task from this person's picks and lowers similar tags a little."""
+    with connect(path, write=True) as db:
+        if not db.execute('SELECT 1 FROM tasks WHERE id=?', (task_id,)).fetchone():
+            raise InvalidAction('任务不存在。')
+        db.execute('INSERT OR IGNORE INTO dismissals (user_id,task_id,created_at) VALUES (?,?,?)', (user_id, task_id, now()))

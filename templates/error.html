@@ -1,1 +1,11 @@
-{% extends 'base.html' %}{% block content %}<section class="empty"><h1>{{ error.code }}</h1><p>{{ error.description }}</p><a class="button primary" href="{{ url_for('index') }}">返回大厅</a></section>{% endblock %}
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% block title %}{{ error.code }} · 搭把手{% endblock %}
+{% block content %}
+<div class="wrap error-page">
+  <b class="big num">{{ error.code }}</b>
+  <h1>{{ {400: '这个请求没能处理', 404: '没找到这个页面', 413: '内容太长了'}.get(error.code, '出了点问题') }}</h1>
+  <p>{{ error.description if error.code == 400 else ('任务可能已经被删除，或者链接打错了。' if error.code == 404 else '请精简一下再提交。') }}</p>
+  <a class="btn" href="{{ url_for('index') }}">{{ icon('back') }}回到发现</a>
+</div>
+{% endblock %}

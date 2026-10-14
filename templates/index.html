@@ -1,63 +1,190 @@
 {% extends 'base.html' %}
-{% from 'components/medal.html' import medal with context %}
+{% from 'components/icon.html' import icon %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import ava, due, task_card, csrf %}
+{% block title %}发现 · 搭把手{% endblock %}
+{% block body_class %}page-home{% endblock %}
+
+{# 色卡上的装饰：只用白和墨，组合点、线、面 #}
+{% macro field_art(v) -%}
+<svg class="pick-art" viewBox="0 0 400 180" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+{%- if v % 3 == 0 -%}
+<path class="fl" style="--fx:8px;--fy:-6px" d="M400 180H250A150 150 0 0 1 400 30Z" fill="#fff"/><circle class="fl" style="--fx:-10px;--fy:6px" cx="318" cy="44" r="14" fill="#1B1D2A"/>
+<g class="fl" style="--fx:-14px"><circle cx="196" cy="44" r="4.5" fill="#fff"/><circle cx="212" cy="44" r="4.5" fill="#fff"/><circle cx="226" cy="44" r="4.5" fill="#fff"/><path d="M236 44H286" stroke="#fff" stroke-width="9" stroke-linecap="round"/></g>
+{%- elif v % 3 == 1 -%}
+<circle class="fl" style="--fx:6px;--fy:6px" cx="372" cy="0" r="104" fill="#fff"/><rect class="fl" style="--fx:-8px" x="230" y="112" width="96" height="10" rx="5" fill="#1B1D2A"/>
+<g class="fl" style="--fy:-8px">{% for x in (236, 254, 272) %}{% for y in (148, 166) %}<circle cx="{{ x }}" cy="{{ y }}" r="4.5" fill="#fff"/>{% endfor %}{% endfor %}</g>
+{%- else -%}
+<path class="fl" style="--fx:10px" d="M300 180 360 40H400V180Z" fill="#fff"/><path class="fl" style="--fx:-6px;--fy:4px" d="M268 180 328 40" stroke="#1B1D2A" stroke-width="8" stroke-linecap="round"/><circle class="fl" style="--fx:-12px;--fy:-6px" cx="236" cy="58" r="11" fill="#1B1D2A"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
 {% block content %}
-<section class="page-heading">
-  <div>
-    <h1>{{ {'all':'悬赏委托板','published':'我的发布','claimed':'我的认领'}.get(scope,'悬赏委托板') }}</h1>
-    <p class="muted">{{ tasks|length }} 个任务{% if category %} · {{ category }}{% endif %}{% if status %} · {{ statuses[status] }}{% endif %}</p>
-  </div>
-  <a class="button primary" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a>
-</section>
-<div class="workspace live-workspace">
-  <section class="task-main">
-    <form method="get" class="filters">
-      <input type="hidden" name="scope" value="{{ scope }}">
-      <input type="hidden" name="category" value="{{ category }}">
-      <label class="search"><span class="sr">搜索任务</span>{{ icon('search') }}<input name="q" placeholder="搜索标题或说明" value="{{ query }}"></label>
-      <label><span class="sr">任务状态</span><select name="status"><option value="">全部状态</option>{% for key,label in statuses.items() %}<option value="{{ key }}" {{ 'selected' if status==key }}>{{ label }}</option>{% endfor %}</select></label>
-      <button class="secondary">筛选</button>
-      {% if query or category or status %}<a class="reset" href="{{ url_for('index',scope=scope) }}">重置</a>{% endif %}
-    </form>
-    <div class="category-tabs" aria-label="分类筛选">
-      <a href="{{ url_for('index',scope=scope,status=status,q=query) }}" {% if not category %}aria-current="true"{% endif %}>全部</a>
-      {% for c in categories %}<a href="{{ url_for('index',scope=scope,status=status,q=query,category=c) }}" {% if category==c %}aria-current="true"{% endif %}>{{ c }}</a>{% endfor %}
+{% set hour = current_time[11:13]|int + 8 %}
+<div class="wrap home">
+  <section class="hello">
+    <div class="hello-text">
+      <h1>{{ '早上好' if hour % 24 < 11 else ('下午好' if hour % 24 < 18 else '晚上好') }}，{{ g.user.name }}</h1>
+      <p>{% if unlockable %}有 <b>{{ counts.get('open', 0) }}</b> 个任务等人搭把手，其中 <b>{{ unlockable }}</b> 个能给你带来新勋章。{% else %}有 <b>{{ counts.get('open', 0) }}</b> 个任务等人搭把手。{% endif %}</p>
     </div>
-    {% if tasks %}
-    <div class="wall-toolbar" hidden>
-      <span data-wall-count aria-live="polite"></span>
-      <div><button type="button" data-wall-prev aria-label="查看左侧区域">← 左侧</button><span data-wall-position></span><button type="button" data-wall-next aria-label="查看右侧区域">右侧 →</button></div>
-      <span class="wall-hint">左右拖动墙面 · 点击任务查看</span>
-    </div>
-    <div class="wall-viewport" tabindex="0" role="region" aria-label="任务委托墙，左右方向键切换区域">
-      <div class="wall-canvas">
-        {% for group in tasks|batch(12) %}
-        <div class="wall-zone">
-          {% for task in group %}
-          <a class="task-card quest-paper variant-{{ task.id % 4 }}" href="{{ url_for('detail',task_id=task.id) }}" data-task="{{ task.id }}" style="--paper-angle:{{ ((task.id * 17) % 13 - 6) * 0.75 }}deg;--paper-x:{{ (task.id * 7) % 11 - 5 }}px;--paper-y:{{ (task.id * 11) % 13 - 6 }}px;--paper-short:{{ task.id % 3 * 7 }}px">
-            <span class="quest-pin" aria-hidden="true"></span>
-            <span class="quest-header"><span>任务委托</span><span>NO. {{ '%03d'|format(task.id) }}</span></span>
-            <h2>{{ task.title }}</h2>
-            <span class="quest-illustration" aria-hidden="true">{{ icon(task.category) }}</span>
-            <span class="quest-meta"><span>{{ task.category }}</span><span class="{{ 'urgent' if task.urgency=='urgent' }}">{{ importance_labels[task.importance] }} · {{ urgency_labels[task.urgency] }}</span></span>
-            <p class="quest-description">{{ task.description }}</p>
-            <span class="quest-reward">{{ medal(medal_key(task)) }}<span><small>任务勋章</small><strong>{{ medals[medal_key(task)].name }}</strong></span>
-              <span class="quest-stamp {{ task.status }}"><strong>{{ statuses[task.status] }}</strong><small>{{ '已截止' if task.status=='open' and task.deadline <= current_time else '任务悬赏' }}</small></span>
-            </span>
-            <span class="quest-foot"><span>{{ task.owner_name }}</span><span title="{{ task.deadline|date }}">{{ task.deadline[:10] }} 截止</span></span>
-          </a>
-          {% endfor %}
-        </div>
-        {% endfor %}
+    <div class="hello-me">
+      {% if mailbox %}
+      <a class="mail-card" href="{{ url_for('honors') }}">{{ icon('mail') }}<span><b>信箱里有 {{ mailbox }} 枚新勋章</b><small>去拆开看看</small></span></a>
+      {% endif %}
+      <a class="level-card" href="{{ url_for('honors') }}">
+        <span class="lv">Lv.{{ me.level }}</span>
+        <span class="level-text"><b>{{ me.name }}</b><small>再 {{ me.to_next }} 经验升到 Lv.{{ me.level + 1 }}</small></span>
+        <span class="bar" style="--p:{{ me.percent }}%"><i></i></span>
+      </a>
+      {% if hand %}
+      <div class="hand"><span>手上的 {{ hand|length }} 件</span>
+        {% for task in hand %}<a href="{{ url_for('detail', task_id=task.id) }}"><span class="st {{ task.status }}"><i></i></span><span>{{ task.title }}</span><em>{{ '等你验收' if task.status == 'review' else due_label(task.deadline)[0] }}</em></a>{% endfor %}
       </div>
+      {% endif %}
     </div>
-    <noscript><p class="muted">JavaScript 未启用，所有任务按区域顺序展示，仍可查看和操作。</p></noscript>
+  </section>
+
+  {% if not has_interests and me.total < 3 and top_tags %}
+  <form class="interests panel" method="post" action="{{ url_for('interests') }}">
+    {{ csrf() }}
+    <div><b>想做哪些方向？</b><small>选几个，「为你挑的」会先按这些来，之后会跟着你做过的任务自己调整。</small></div>
+    <div class="chips">{% for tag in top_tags %}<label class="chip"><input type="checkbox" name="tags" value="{{ tag }}">{{ tag }}</label>{% endfor %}<input class="chip-input" name="tags" placeholder="其他方向" aria-label="其他方向"></div>
+    <button class="btn btn-sm">记下</button>
+  </form>
+  {% endif %}
+
+  <section class="picks" aria-labelledby="picks-title">
+    <header class="sec-head"><h2 id="picks-title">为你挑的</h2><small>按你做过的任务、想做的方向和还没收集到的勋章挑</small>
+      {% if picks %}<a class="shuffle" href="{{ page_url(batch=batch + 1) }}#picks-title" data-shuffle>{{ icon('shuffle') }}换一批</a>{% endif %}</header>
+    {% if picks %}
+    <div class="pick-row">
+      {% for pick in picks %}{% set task = pick.task %}{% set key = medal_key(task) %}{% set left = due_label(task.deadline) %}
+      <article class="pick" style="--i:{{ loop.index0 }};--hue:{{ medals[key].hue }}" data-pick="{{ task.id }}">
+        <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
+        <div class="pick-field">{{ field_art(loop.index0) }}
+          <span class="sticker" style="--sticker:{{ {'unlock': '#F39800', 'skill': '#00A27A', 'similar': '#00A27A', 'project': '#2866B1', 'new-project': '#2866B1', 'interest': '#00AEE0', 'urgent': '#E54465', 'quick': '#00A27A'}.get(pick.reasons[0][0], '#1B1D2A') }}"><i></i>{{ pick.reasons[0][1] }}</span>
+          <form class="pick-x" method="post" action="{{ url_for('dismiss_task', task_id=task.id) }}">{{ csrf() }}<button title="不感兴趣，少推荐这类" aria-label="不感兴趣：{{ task.title }}">{{ icon('close') }}</button></form>
+        </div>
+        {{ medal(key, 'pick-medal', label='完成可得 ' ~ medals[key].name) }}
+        <div class="pick-body">
+          <span class="kicker">{{ task.project or (pick.tags[0] if pick.tags else '') }}<span>·</span>{{ effort_labels[task.importance] }}<span>·</span><span class="{{ 'soon' if left[1] }}">{{ left[0] }}</span></span>
+          <h3>{{ task.title }}</h3>
+          <p class="goal">{{ task.description }}</p>
+          <div class="pick-foot">{{ ava(task.owner_name, task.owner_id) }}<span>{{ task.owner_name }}</span><span class="xp">+{{ task_xp(key) }} 经验</span>
+            <form method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-quick-claim>{{ csrf() }}<button class="btn btn-sm">认领</button></form></div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
     {% else %}
-    <section class="empty"><h2>暂无任务</h2><p class="muted">调整筛选条件或发布任务。</p><a class="button primary" href="{{ url_for('new_task') }}">发布任务</a></section>
+    <div class="empty panel"><b>现在没有能认领的任务</b><span>发一个吧，或者去看看大家在做什么。</span><a class="btn btn-sm" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a></div>
     {% endif %}
   </section>
-  <aside class="dashboard-side">
-    <section class="side-panel overview"><h2>全团队任务<span class="total-count">{{ counts.values()|sum }}</span></h2><div class="overview-grid">{% for key,label in statuses.items() %}<a class="overview-stat {{ key }}" href="{{ url_for('index',status=key) }}"><span class="stat-dot"></span><span>{{ label }}</span><strong>{{ counts.get(key,0) }}</strong></a>{% endfor %}</div></section>
-    <section class="side-panel collection-preview"><h2>我的勋章</h2><div class="mini-collection">{% for key in medal_preview %}<span class="{{ 'unearned' if key not in earned_keys }}">{{ medal(key,'large') }}</span>{% endfor %}</div><div class="collection-count"><strong>{{ earned_keys|length }}<small> / 6 种</small></strong><span>{{ honor_total }} 枚</span></div><progress value="{{ earned_keys|length }}" max="6" aria-label="勋章收集进度"></progress><a class="button secondary wide" href="{{ url_for('honors') }}">查看收藏 {{ icon('arrow') }}</a></section>
-  </aside>
+
+  {% if feed %}
+  <div class="ticker" aria-label="团队动态">
+    {% set row %}{% for item in feed %}<a class="tk" href="{{ url_for('detail', task_id=item.task_id) }}">{{ ava(item.who) }}{% if item.kind == 'done' %}{{ item.who }} 完成了「{{ item.title }}」{{ medal(item.medal_key) }}{% if item.claps %}<em>鼓掌 {{ item.claps }}</em>{% endif %}{% else %}{{ item.who }} 发布了「{{ item.title }}」{% if item.medal_key.endswith('urgent') %}<em class="urgent">急</em>{% endif %}{% endif %}</a>{% endfor %}{% endset %}
+    <div class="ticker-in"><div>{{ row }}</div><div aria-hidden="true">{{ row }}</div></div>
+  </div>
+  {% endif %}
+
+  {% set b = bundles.current %}
+  <section class="bundle panel{{ ' is-done' if b.done }}" aria-labelledby="bundle-title">
+    <div class="bundle-art">
+      <svg viewBox="0 0 440 240" aria-hidden="true">
+        {% set shapes = [
+          '<circle cx="300" cy="96" r="70" fill="#E54465"/>',
+          '<rect x="150" y="120" width="104" height="104" fill="#2866B1"/>',
+          '<path d="M268 226A86 86 0 0 1 354 140V226Z" fill="#F2B700"/>',
+          '<path d="M80 226 150 156V226Z" fill="#00A27A"/>',
+          '<rect x="366" y="36" width="14" height="190" rx="7" fill="#00AEE0"/>',
+          '<circle cx="206" cy="78" r="18" fill="#1B1D2A"/>',
+          '<circle cx="404" cy="214" r="10" fill="#F39800"/>',
+          '<rect x="96" y="60" width="38" height="38" rx="2" fill="#00AEE0"/>'] %}
+        {% for shape in shapes %}<g class="piece{{ ' on' if loop.index <= bundles.pieces else '' }}" style="--i:{{ loop.index0 }}">{{ shape|safe }}</g>{% endfor %}
+      </svg>
+    </div>
+    <div class="bundle-body">
+      <span class="label">本周团队收集包</span>
+      <h2 id="bundle-title">{{ b.name }}<small>{{ b.count }} / {{ b.slots|length }}</small></h2>
+      <p>谁的任务验收通过，就往包里放一枚对应的勋章。集满一包，左边的图就拼上一块；团队已经拼了 {{ bundles.pieces }} / {{ bundles.piece_count }} 块。</p>
+      <ol class="slots">
+        {% for slot in b.slots %}
+        <li class="slot{{ ' filled' if slot.honor }}">
+          {% if slot.honor %}{{ medal(slot.honor.medal_key) }}<small>{{ slot.honor.who }}</small>{% else %}<span class="slot-need">{{ slot.label }}</span><small>空着</small>{% endif %}
+        </li>
+        {% endfor %}
+      </ol>
+    </div>
+  </section>
+
+  <section class="browse" aria-labelledby="browse-title">
+    <div class="browse-main">
+      <header class="sec-head">
+        <h2 id="browse-title">{{ {'open': '全部可认领', 'active': '进行中', 'review': '待验收', 'done': '已完成'}.get(status, '全部任务') }}</h2><span class="count">{{ tasks|length }}</span>
+        <nav class="timeseg right" aria-label="想花多少时间">
+          <a href="{{ page_url(effort='') }}" {% if not effort %}aria-current="true"{% endif %}>不限</a>
+          {% for key, label in effort_labels.items() %}<a href="{{ page_url(effort=key) }}" {% if effort == key %}aria-current="true"{% endif %}>{{ medal(key ~ '-normal') }}{{ label }}</a>{% endfor %}
+        </nav>
+      </header>
+      <form class="frow" method="get" action="{{ url_for('index') }}" role="search">
+        {% for name in ('status', 'effort', 'tag', 'project') %}{% if request.args.get(name) %}<input type="hidden" name="{{ name }}" value="{{ request.args.get(name) }}">{% endif %}{% endfor %}
+        <label class="search">{{ icon('search') }}<input type="search" name="q" value="{{ query }}" placeholder="搜标题或说明" aria-label="搜索任务"></label>
+        {% if projects %}<select name="project" aria-label="项目" onchange="this.form.submit()"><option value="">全部项目</option>{% for name in projects %}<option {% if project == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select>{% endif %}
+        <a class="toggle{{ ' on' if unlock }}" href="{{ page_url(unlock='' if unlock else '1') }}" role="switch" aria-checked="{{ 'true' if unlock else 'false' }}"><i></i>只看能拿新勋章的</a>
+      </form>
+      <div class="chips tag-row">
+        <a class="chip" href="{{ page_url(tag='') }}" {% if not tag %}aria-current="true"{% endif %}>全部标签</a>
+        {% for name in top_tags %}<a class="chip" href="{{ page_url(tag=name) }}" {% if tag == name %}aria-current="true"{% endif %}>#{{ name }}</a>{% endfor %}
+        {% if tag and tag not in top_tags %}<a class="chip" aria-current="true" href="{{ page_url(tag='') }}">#{{ tag }}</a>{% endif %}
+      </div>
+
+      <div class="wall">
+        <div class="wall-toolbar" {% if zones|length < 2 %}hidden{% endif %}>
+          <button type="button" class="btn btn-line btn-sm" data-wall-prev aria-label="上一页">{{ icon('back') }}</button>
+          <span class="num"><span data-wall-position>1</span> / <span data-wall-count>{{ zones|length }}</span></span>
+          <button type="button" class="btn btn-line btn-sm" data-wall-next aria-label="下一页">{{ icon('arrow') }}</button>
+        </div>
+        <div class="wall-viewport">
+          <div class="wall-canvas" data-zone="0">
+            {% for zone in zones %}
+            <section class="wall-zone" data-zone-index="{{ loop.index0 }}" {% if not loop.first %}hidden{% endif %} aria-label="第 {{ loop.index }} 页">
+              {% if zone %}<div class="cards">{% for task in zone %}{{ task_card(task, tags_of[task.id], earned_keys, loop.index0) }}{% endfor %}</div>
+              {% else %}<div class="empty panel"><b>没有符合条件的任务</b><span>换个标签或时间看看。</span><a class="btn btn-line btn-sm" href="{{ url_for('index') }}">清除筛选</a></div>{% endif %}
+            </section>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+      <p class="also">也看看：
+        {% for key, label in statuses.items() %}{% if key != status %}<a href="{{ page_url(status=key) }}">{{ label }} {{ counts.get(key, 0) }}</a>{% endif %}{% endfor %}
+      </p>
+    </div>
+
+    <aside class="team" aria-label="团队">
+      {% set top_day = (week.days|max) or 1 %}
+      <section class="week panel">
+        <span class="label">本周团队</span>
+        <div class="bigrow"><b class="big num">{{ week.count }}</b><span>个任务完成</span></div>
+        <small>{% if week.count > week.previous %}比上周多 <b>{{ week.count - week.previous }}</b> 个{% elif week.previous %}上周完成了 {{ week.previous }} 个{% else %}新的一周，从第一个开始{% endif %}</small>
+        <div class="days">{% for n in week.days %}<i class="{{ 'today' if loop.index0 == week.today }}" style="--h:{{ (n / top_day * 56)|round|int + 6 }}px;--c:{{ '#00A27A' if n else 'var(--ground)' }}" title="{{ n }} 个"></i>{% endfor %}</div>
+        <div class="days-l">{% for d in '一二三四五六日' %}<span>{{ d }}</span>{% endfor %}</div>
+      </section>
+      <section class="feed panel">
+        <h3>刚刚</h3>
+        {% for item in feed if item.kind == 'done' %}
+        <div class="fi">{{ ava(item.who) }}<div><p><b>{{ item.who }}</b> 完成了「<a href="{{ url_for('detail', task_id=item.task_id) }}">{{ item.title }}</a>」</p>
+          <div class="meta">{{ medal(item.medal_key) }}<time>{{ item.at|md }}</time>
+            {% if item.mine %}<span class="clap-count">{{ icon('clap') }}{{ item.claps }}</span>
+            {% else %}<form method="post" action="{{ url_for('clap_task', task_id=item.task_id) }}" data-clap>{{ csrf() }}<button class="clap{{ ' on' if item.clapped }}" {% if item.clapped %}aria-pressed="true"{% endif %} title="鼓掌">{{ icon('clap') }}<span>{{ item.claps }}</span></button></form>{% endif %}
+          </div></div></div>
+        {% else %}
+        <p class="feed-empty">还没有人完成任务。第一个完成的人会出现在这里。</p>
+        {% endfor %}
+      </section>
+      <a class="wall-link panel" href="{{ url_for('honors') }}#team">团队名牌墙{{ icon('arrow') }}</a>
+    </aside>
+  </section>
 </div>
 {% endblock %}

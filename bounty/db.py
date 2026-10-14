@@ -36,6 +36,29 @@ CREATE TABLE IF NOT EXISTS featured_honors (
  medal_key TEXT NOT NULL,
  PRIMARY KEY(user_id,slot), UNIQUE(user_id,medal_key)
 );
+CREATE TABLE IF NOT EXISTS task_tags (
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ tag TEXT NOT NULL,
+ PRIMARY KEY(task_id,tag)
+);
+CREATE INDEX IF NOT EXISTS task_tags_by_tag ON task_tags(tag);
+CREATE TABLE IF NOT EXISTS interests (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ tag TEXT NOT NULL,
+ PRIMARY KEY(user_id,tag)
+);
+CREATE TABLE IF NOT EXISTS dismissals (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,task_id)
+);
+CREATE TABLE IF NOT EXISTS claps (
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(task_id,user_id)
+);
 '''
 
 
@@ -83,6 +106,10 @@ def initialize(path):
         db.executescript(SCHEMA)
         if 'seen_at' not in {row['name'] for row in db.execute('PRAGMA table_info(honors)')}:
             db.execute('ALTER TABLE honors ADD COLUMN seen_at TEXT')
+        if 'project' not in {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}:
+            db.execute('ALTER TABLE tasks ADD COLUMN project TEXT')
+        # Older tasks had one fixed category; it becomes their first tag so search and recommendations keep working.
+        db.execute('INSERT OR IGNORE INTO task_tags (task_id,tag) SELECT id,category FROM tasks WHERE id NOT IN (SELECT task_id FROM task_tags)')
         # Also resumes safely if startup was interrupted after the table migration.
         db.execute('''INSERT OR IGNORE INTO honors (task_id,user_id,medal_key,awarded_at)
             SELECT t.id,t.assignee_id,t.importance || '-' || t.urgency,

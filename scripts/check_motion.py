@@ -20,8 +20,8 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
  with connect(app.config['DATABASE'],write=True) as db:
   db.executemany('INSERT INTO users(name,password) VALUES (?,?)',[(name,generate_password_hash('test-password')) for name in ('发布者','认领人')])
  deadline = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec='minutes')
- for i in range(12):
-  create_task(app.config['DATABASE'],1,dict(title=f'墙面测试任务 {i+1}',description='真实数据库任务',requirements='文字成果',category='文档',importance='standard',urgency='normal',deadline=deadline))
+ for i in range(14):
+  create_task(app.config['DATABASE'],1,dict(title=f'墙面测试任务 {i+1}',description='真实数据库任务',requirements='文字成果',tags='文档 测试',project='墙面',importance='standard',urgency='normal',deadline=deadline))
  server=make_server('127.0.0.1',0,app,threaded=True)
  threading.Thread(target=server.serve_forever,daemon=True).start()
  base='http://127.0.0.1:'+str(server.server_port)
@@ -64,11 +64,11 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   def login(name):
    nav('/auth/login')
    ev('document.querySelector("[name=name]").value='+json.dumps(name)+';document.querySelector("[name=password]").value="test-password"')
-   click('form button');wait("location.pathname==='/' && document.querySelector('.workspace')")
+   click('form button');wait("location.pathname==='/' && document.querySelector('.home')")
   call('Emulation.setDeviceMetricsOverride',{'width':1440,'height':1100,'deviceScaleFactor':1,'mobile':False})
   login('发布者')
   nav('/tasks/new')
-  ev("document.querySelector('[name=title]').value='整理入门文档';document.querySelector('[name=description]').value='整理安装步骤和常见问题';document.querySelector('[name=requirements]').value='提交成果链接';document.querySelector('[name=importance]').value='standard';document.querySelector('[name=urgency]').value='normal'")
+  ev("document.querySelector('[name=title]').value='整理入门文档';document.querySelector('[name=description]').value='整理安装步骤和常见问题';document.querySelector('[name=requirements]').value='提交成果链接';document.querySelector('[name=tags]').value='文档 新人';document.querySelector('[name=importance][value=standard]').checked=true;document.querySelector('[name=urgency][value=normal]').checked=true")
   ev('document.querySelector("[name=deadline]").value='+json.dumps(deadline[:16]))
   click('form.editor button[type=submit], form.editor button.primary')
   wait("location.pathname.startsWith('/tasks/') && !location.pathname.endsWith('/new')")
@@ -95,12 +95,14 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   ev("document.querySelector('[data-action-form=submit] textarea').value='已补充安装截图'")
   click('[data-action-form=submit] button');wait("!!document.querySelector('[data-confirmed-action=submit]')")
   click('.account form button');wait("location.pathname==='/auth/login'")
-  login('发布者');nav(flow_path);click('[data-action-form=accept] button')
+  login('发布者');nav(flow_path);click('[data-action-form=accept] [data-praise]')
+  assert ev("document.querySelector('[data-action-form=accept] textarea').value.length>0")
+  click('[data-action-form=accept] button:not([data-praise])')
   wait("!!document.querySelector('[data-confirmed-action=accept]')")
   nav('/honors');time.sleep(.2);assert not ev("document.querySelector('.award-dialog').open")
   click('.account form button');wait("location.pathname==='/auth/login'")
   login('认领人');nav('/honors');wait("document.querySelector('.award-dialog').open")
-  assert ev("document.querySelector('.award-items').textContent.includes('饭团')")
+  assert ev("document.querySelector('.award-items').textContent.includes('线')")
   time.sleep(.85);shot('medal-reveal')
   click('[data-close-awards]');wait("!document.querySelector('.award-dialog').open")
   assert ev("!!document.querySelector('.collection-new')")
@@ -110,9 +112,10 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   assert ev("document.querySelector('[data-collection-key=\"standard-normal\"] .honor-back').textContent.includes('整理入门文档')")
   click('.shelf-editor summary');click('[name=medals][value="standard-normal"]');click('.shelf-editor button')
   wait("!!document.querySelector('.notice.success')")
-  assert ev("document.querySelector('.shelf-slots').textContent.includes('饭团')")
-  nav('/');assert ev("document.querySelector('.mini-collection').textContent !== undefined")
-  wait("document.querySelectorAll('[data-task]').length===13")
+  assert ev("document.querySelector('.shelf-slots').textContent.includes('线')")
+  nav('/');assert ev("document.querySelector('.level-card').textContent.includes('Lv.')")
+  assert ev("document.querySelectorAll('[data-pick]').length===3")
+  wait("document.querySelectorAll('[data-task]').length===14")
   assert ev("document.querySelectorAll('.wall-zone').length===2")
   click('[data-wall-next]')
   wait("document.querySelector('.wall-canvas').getAnimations().length===0")
@@ -138,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   with connect(app.config['DATABASE']) as db:
    assert db.execute('SELECT COUNT(*) FROM honors').fetchone()[0]==1
    assert db.execute('SELECT COUNT(*) FROM featured_honors').fetchone()[0]==1
-  print('PASS: live browser publish, claim, validation, return/resubmit, accept, private one-time reveal, flip, featured persistence, real task wall, motion opt-out, reduced motion, 8 responsive views')
+  print('PASS: live browser publish, claim, validation, return/resubmit, praise + accept, private one-time ceremony, collection back, nameplate, picks, task wall paging, motion opt-out, reduced motion, 8 responsive views')
   ws.close()
  finally:
   proc.terminate()

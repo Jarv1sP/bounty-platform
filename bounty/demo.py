@@ -2,20 +2,41 @@
 from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from .db import connect, initialize
-from .service import create_task, act
+from .service import act, clap, create_task
 
-DEMO_USERS = ('发布者', '认领人', '其他成员')
+DEMO_USERS = ('发布者', '认领人', '其他成员', '陈默', '王瑶', '周然', '林夕')
 DEMO_PASSWORD = 'demo12345'
-TITLES = (
-    ('文档', '整理新成员入门指南'), ('设计', '设计团队分享会海报'), ('开发', '补充文件导出工具'),
-    ('调研', '比较三款录屏工具'), ('文档', '补充接口使用示例'), ('设计', '制作项目封面'),
-    ('开发', '添加数据去重功能'), ('调研', '收集团队反馈'), ('文档', '翻译快速入门说明'),
-    ('设计', '整理配色与字体规范'), ('开发', '优化搜索结果排序'), ('调研', '调研文档协作工具'),
-    ('文档', '归档分享会笔记'), ('设计', '制作分类图标'), ('开发', '补充异常处理'),
-    ('调研', '整理交付流程'), ('运营', '准备活动签到表'), ('其他', '整理会议室物品清单'),
-    ('文档', '校对项目介绍'), ('开发', '制作批量重命名脚本'), ('运营', '整理分享会日程'),
-    ('设计', '绘制活动签到卡'), ('文档', '整理常用命令速查表'), ('其他', '检查物料准备情况'),
+U = {name: index + 1 for index, name in enumerate(DEMO_USERS)}
+
+# (标签, 项目, 标题, 一句话说明, 分量, 紧急, 发布者, 走到哪一步, 由谁来做)
+TASKS = (
+    ('数据 造数据', '校赛 2026', '给模拟赛造数据', '为周六模拟赛的 E 题造 30 组数据，要含极限规模和边界情况。', 'standard', 'urgent', '陈默', 'open', None),
+    ('讲解 题解', '新人培养', '写一篇周赛题解', '把上周周赛 C、D 两题的思路和代码整理成一篇题解，发到组里。', 'light', 'normal', '王瑶', 'open', None),
+    ('论文 复现 PyTorch', 'GNN 研究', '复现 GraphSAGE 的 baseline', '在 ogbn-arxiv 上跑出论文里的精度，记录超参和每轮耗时。', 'major', 'normal', '其他成员', 'open', None),
+    ('代码 运维', '实验室基建', '配置 GPU 排队脚本', '四张卡总被抢，写个排队脚本，按提交顺序分配显卡。', 'major', 'urgent', '周然', 'open', None),
+    ('数据 题库', '题库', '清洗竞赛题目标签', '给 1200 道题统一知识点标签，去掉重复和错标的。', 'light', 'urgent', '王瑶', 'open', None),
+    ('实验 PyTorch', 'GNN 研究', '跑一组消融实验', '去掉注意力层和残差各跑三次，结果填进对比表。', 'standard', 'normal', '其他成员', 'open', None),
+    ('讲解 图论', '新人培养', '给新人讲一次图论入门', '一小时，讲清 BFS、最短路和并查集，带两道例题。', 'standard', 'normal', '王瑶', 'open', None),
+    ('讲解 题单 DP', '新人培养', '整理 DP 专题题单', '挑 20 道 DP 题，按难度排好，每题写一句提示。', 'light', 'normal', '陈默', 'open', None),
+    ('代码 评测机', '实验室基建', '修复评测机的超时统计', '多线程评测时超时被重复计数，查清原因并修好。', 'standard', 'normal', '周然', 'open', None),
+    ('实验 PyTorch', 'GNN 研究', '对比三种 GNN 的训练速度', '同一张卡上比较 GCN、GAT、SAGE 每轮耗时和显存。', 'major', 'normal', '陈默', 'open', None),
+    ('论文 分享', 'GNN 研究', '读并分享一篇 ICLR 论文', '挑一篇图学习方向的论文，组会上讲 15 分钟。', 'standard', 'normal', '其他成员', 'open', None),
+    ('杂务 宣传', '校赛 2026', '给校赛海报写一句口号', '十个字以内，让新生看了想来报名。', 'light', 'normal', '林夕', 'open', None),
+    ('数据 归档', '校赛 2026', '整理历年校赛题目归档', '把五年的校赛题面、数据和题解按年份放进同一个目录。', 'standard', 'normal', '发布者', 'open', None),
+    ('代码 题库', '题库', '给题库加按标签检索', '在题库页面加一个标签筛选，支持多选。', 'standard', 'urgent', '发布者', 'open', None),
+    ('杂务', '校赛 2026', '预订周六模拟赛的机房', '借两间机房，确认网络和投影能用。', 'light', 'urgent', '发布者', 'open', None),
+    ('实验 PyTorch', 'GNN 研究', '调一版学习率预热', '试三种预热步数，画出前 2000 步的 loss 曲线。', 'standard', 'normal', '发布者', 'claim', '认领人'),
+    ('讲解 线段树', '新人培养', '录一节线段树讲解视频', '二十分钟以内，讲清区间修改和懒标记。', 'major', 'normal', '王瑶', 'claim', '陈默'),
+    ('代码 模板 测试', '新人培养', '给比赛代码模板加单元测试', '为快读、取模和并查集模板各写五个测试。', 'standard', 'normal', '发布者', 'return', '认领人'),
+    ('数据 标注', 'GNN 研究', '标注 200 条错误样例', '把模型判错的 200 条样例按错误类型分好类。', 'light', 'normal', '发布者', 'submit', '认领人'),
+    ('论文 速查', 'GNN 研究', '写一页 Transformer 速查表', '公式、复杂度和常见变体压缩成一页。', 'standard', 'urgent', '其他成员', 'submit', '林夕'),
+    ('讲解 模板', '新人培养', '写周会纪要模板', '给周会做一个纪要模板，含决议和待办两栏。', 'light', 'normal', '王瑶', 'accept', '认领人'),
+    ('数据 清洗', '校赛 2026', '清洗去年比赛的提交记录', '去掉重复提交和测试账号，导出成一张表。', 'standard', 'normal', '陈默', 'accept', '认领人'),
+    ('代码 评测机', '实验室基建', '修好评测机的内存统计', '内存峰值总是偏小，查清采样方式并修好。', 'major', 'urgent', '周然', 'accept', '陈默'),
+    ('实验 复现', 'GNN 研究', '复现 GCN 的 baseline', '在 Cora 上跑出论文精度，写清随机种子和超参。', 'major', 'normal', '其他成员', 'accept', '周然'),
 )
+CLAPS = {'写周会纪要模板': ('王瑶', '陈默'), '清洗去年比赛的提交记录': ('陈默', '周然', '林夕'),
+         '修好评测机的内存统计': ('认领人', '王瑶', '周然', '林夕'), '复现 GCN 的 baseline': ('陈默', '王瑶')}
 
 
 def seed_demo(path):
@@ -25,18 +46,25 @@ def seed_demo(path):
             raise ValueError('演示数据只允许导入空数据库，请使用新的 --data-dir。')
         db.executemany('INSERT INTO users(name,password) VALUES (?,?)',
                        [(name, generate_password_hash(DEMO_PASSWORD)) for name in DEMO_USERS])
-    importance = ('light', 'standard', 'major')
-    deadline = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec='seconds')
-    for index, (category, title) in enumerate(TITLES):
-        task_id = create_task(path, 1, dict(
-            title=title, category=category, description='演示任务：' + title + '。请在任务内讨论具体需求，并按交付要求提交成果。',
-            requirements='提交文字说明和成果链接；发布者检查完整性后验收，需要修改时说明原因。',
-            importance=importance[index % 3], urgency='urgent' if index % 4 == 1 else 'normal', deadline=deadline,
+    soon = datetime.now(timezone.utc)
+    for index, (tags, project, title, description, importance, urgency, owner, stage, worker) in enumerate(TASKS):
+        # 截止时间错开：加急的两三天内，其余一到三周，卡片上的倒计时才有轻重
+        days = 2 + index % 2 if urgency == 'urgent' else 6 + (index * 5) % 16
+        task_id = create_task(path, U[owner], dict(
+            title=title, tags=tags, project=project, description=description,
+            requirements='提交成果链接和一段说明；发布者对照说明验收，需要修改时写明原因。',
+            importance=importance, urgency=urgency, deadline=(soon + timedelta(days=days, hours=10)).isoformat(timespec='seconds'),
         ))
-        if index >= 16:
-            act(path, task_id, 2, 'claim')
-        if index >= 20:
-            act(path, task_id, 2, 'submit', '演示交付：文档草稿已整理，请验收。')
-        if index >= 22:
-            act(path, task_id, 1, 'accept', '演示验收通过。')
-    return len(TITLES)
+        if stage == 'open':
+            continue
+        act(path, task_id, U[worker], 'claim')
+        if stage == 'return':
+            act(path, task_id, U[worker], 'submit', '第一版放在共享盘「模板/tests」。')
+            act(path, task_id, U[owner], 'return', '并查集的测试少了路径压缩后的情况，请补上再提交。')
+        if stage in ('submit', 'accept'):
+            act(path, task_id, U[worker], 'submit', '成果放在共享盘，说明写在 README 里。')
+        if stage == 'accept':
+            act(path, task_id, U[owner], 'accept', '很清楚，已经在用了。')
+            for fan in CLAPS.get(title, ()):
+                clap(path, task_id, U[fan])
+    return len(TASKS)

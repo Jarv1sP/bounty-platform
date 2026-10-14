@@ -1,4 +1,59 @@
 {% from 'components/icon.html' import icon %}
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="csrf-token" content="{{ session.csrf }}"><title>{% block title %}搭把手 · 团队任务{% endblock %}</title><link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}"><link rel="stylesheet" href="{{ url_for('static',filename='board.css') }}"><script src="{{ url_for('static',filename='ui.js') }}" defer></script><script src="{{ url_for('static',filename='board.js') }}" defer></script></head>
-<body><a class="skip" href="#main">跳到正文</a><header class="app-header"><div class="header-inner"><a class="brand" href="{{ url_for('index') }}"><span class="brand-icon" aria-hidden="true">{{ icon('check') }}</span><span>搭把手</span></a>{% if g.user %}<nav aria-label="主导航">{% for key,label,symbol in [('all','任务大厅','grid'),('published','我的发布','publish'),('claimed','我的认领','check')] %}<a href="{{ url_for('index',scope=key) }}" {% if request.endpoint=='index' and scope==key %}aria-current="page"{% endif %}>{{ icon(symbol) }}<span>{{ label }}</span></a>{% endfor %}<a href="{{ url_for('honors') }}" {% if request.endpoint=='honors' %}aria-current="page"{% endif %}>{{ icon('medal') }}<span>我的勋章</span></a></nav><div class="account"><span class="avatar" aria-hidden="true">{{ g.user.name[:1] }}</span><span class="account-name">{{ g.user.name }}</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button class="link">退出</button></form></div>{% else %}<span class="header-label">团队任务平台</span>{% endif %}</div></header>
-<main id="main">{% for category,message in get_flashed_messages(with_categories=true) %}<div role="alert" class="notice {{ category }}">{{ message }}</div>{% endfor %}{% block content %}{% endblock %}</main><footer><span>搭把手 · 团队任务</span><span>勋章仅作荣誉纪念</span><button type="button" class="motion-toggle" data-motion-toggle aria-pressed="false" hidden>动效：开</button></footer></body></html>
+{% from 'components/ui.html' import logo, ava %}
+<!doctype html>
+<html lang="zh-CN" data-motion="on">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="csrf-token" content="{{ session.csrf }}">
+  <title>{% block title %}搭把手{% endblock %}</title>
+  <script>
+    // 在样式生效前定下动效开关，避免先动一下再停
+    try { if (localStorage.getItem('bounty-motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.dataset.motion = 'off'; } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
+  <script src="{{ url_for('static', filename='ui.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='board.js') }}" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip" href="#main">跳到正文</a>
+  {% if g.user %}
+  {% set here = request.endpoint %}
+  <header class="top">
+    <div class="top-in">
+      <a class="logo" href="{{ url_for('index') }}">{{ logo() }}搭把手</a>
+      <nav class="nav" aria-label="主导航">
+        <a href="{{ url_for('index') }}" {% if here == 'index' %}aria-current="page"{% endif %}>发现</a>
+        <a href="{{ url_for('mine') }}" {% if here == 'mine' %}aria-current="page"{% endif %}>我的任务{% if my_turn %}<b aria-label="{{ my_turn }} 件轮到你">{{ my_turn }}</b>{% endif %}</a>
+        <a href="{{ url_for('honors') }}" {% if here == 'honors' %}aria-current="page"{% endif %}>成就</a>
+      </nav>
+      <div class="top-right">
+        <a class="btn btn-new" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a>
+        <a class="icon-btn mailbox{{ ' has-mail' if mailbox }}" href="{{ url_for('honors') }}" title="信箱" aria-label="信箱{{ '：' ~ mailbox ~ ' 枚新勋章待领取' if mailbox else '' }}">{{ icon('mail') }}{% if mailbox %}<b>{{ mailbox }}</b>{% endif %}</a>
+        <button type="button" class="icon-btn" data-sound-toggle aria-pressed="false" title="音效：关" aria-label="音效">{{ icon('mute') }}</button>
+        <button type="button" class="icon-btn" data-motion-toggle aria-pressed="false" title="动效：开" aria-label="动效">{{ icon('motion') }}</button>
+        <div class="account">
+          <a class="me-chip" href="{{ url_for('honors') }}" title="{{ me.name }} · {{ me.xp }} 经验"><span class="lv">Lv.{{ me.level }}</span><span class="name">{{ g.user.name }}</span></a>
+          <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ session.csrf }}"><button>退出</button></form>
+        </div>
+      </div>
+    </div>
+  </header>
+  <nav class="tabbar" aria-label="主导航">
+    <a href="{{ url_for('index') }}" {% if here == 'index' %}aria-current="page"{% endif %}>{{ icon('compass') }}发现</a>
+    <a class="plus-wrap" href="{{ url_for('new_task') }}" aria-label="发布任务"><span class="plus">{{ icon('plus') }}</span></a>
+    <a href="{{ url_for('mine') }}" {% if here == 'mine' %}aria-current="page"{% endif %}>{{ icon('list') }}我的{% if my_turn %}<b>{{ my_turn }}</b>{% endif %}</a>
+    <a href="{{ url_for('honors') }}" {% if here == 'honors' %}aria-current="page"{% endif %}>{{ icon('medal') }}成就</a>
+  </nav>
+  {% endif %}
+  <div class="notices">
+    {% if g.user %}{% for category, message in get_flashed_messages(with_categories=true) %}
+    <div role="alert" class="notice {{ category }}">{{ icon('check' if category == 'success' else 'info') }}<span>{{ message }}</span></div>
+    {% endfor %}{% endif %}
+  </div>
+  <main id="main">{% block content %}{% endblock %}</main>
+  <div class="toasts" aria-live="polite"></div>
+</body>
+</html>

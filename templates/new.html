@@ -1,1 +1,59 @@
-{% extends 'base.html' %}{% from 'components/medal.html' import medal with context %}{% block content %}<a class="back" href="{{ url_for('index') }}">← 返回任务大厅</a><div class="page-heading"><div><h1>发布任务</h1></div></div><form method="post" class="panel editor"><input type="hidden" name="csrf" value="{{ session.csrf }}"><div class="section-title"><span class="step-number">1</span><h2>基本信息</h2></div><label>任务标题<input name="title" required maxlength="120" placeholder="例如：整理团队新成员入门指南" value="{{ request.form.get('title','') }}"></label><div class="form-grid"><label>分类<select name="category">{% for c in categories %}<option {{ 'selected' if request.form.get('category')==c }}>{{ c }}</option>{% endfor %}</select></label><label>截止时间（UTC）<input type="datetime-local" name="deadline" required value="{{ request.form.get('deadline','') }}"><small>使用 UTC 时间，当前为 {{ current_time|date }}。</small></label></div><label>任务说明<textarea name="description" required maxlength="10000" rows="5" placeholder="背景、需要完成的工作，以及可用的参考资料">{{ request.form.get('description','') }}</textarea></label><div class="section-title"><span class="step-number">2</span><h2>交付要求</h2></div><label>交付要求<textarea name="requirements" required maxlength="10000" rows="4" placeholder="成果格式、验收标准；支持文字和链接">{{ request.form.get('requirements','') }}</textarea></label><div class="section-title"><span class="step-number">3</span><h2>任务分量与勋章</h2></div><div class="form-grid"><label>任务分量<select name="importance" id="importance" required>{% for key,label in importance_labels.items() %}<option value="{{ key }}" {{ 'selected' if request.form.get('importance','standard')==key }}>{{ label }}</option>{% endfor %}</select><small>轻量：小项协助；常规：独立交付；重要：关键事项。</small></label><label>紧急程度<select name="urgency" id="urgency" required>{% for key,label in urgency_labels.items() %}<option value="{{ key }}" {{ 'selected' if request.form.get('urgency','normal')==key }}>{{ label }}</option>{% endfor %}</select></label></div><div class="medal-previews" aria-live="polite" aria-atomic="true">{% for key,item in medals.items() %}<div class="medal-preview" data-medal="{{ key }}" {% if key != request.form.get('importance','standard') ~ '-' ~ request.form.get('urgency','normal') %}hidden{% endif %}>{{ medal(key,'large') }}<div><small>任务勋章</small><h3>{{ item.name }}</h3><p>验收通过后授予认领人。</p></div></div>{% endfor %}</div><noscript><p class="hint">勋章将按所选分量和紧急程度分配，发布后可在任务详情中查看。</p></noscript><div class="form-actions"><a class="button secondary" href="{{ url_for('index') }}">取消</a><button class="primary">发布任务 {{ icon('arrow') }}</button></div></form>{% endblock %}
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import ava, csrf %}
+{% block title %}发布任务 · 搭把手{% endblock %}
+{% block body_class %}page-new{% endblock %}
+{% block content %}
+{% set form = request.form %}
+{% set importance = form.get('importance', 'standard') %}
+{% set urgency = form.get('urgency', 'normal') %}
+<div class="wrap compose">
+  <form class="editor panel" method="post" action="{{ url_for('new_task') }}" data-editor>
+    {{ csrf() }}
+    <h1>发布任务</h1>
+    <p class="intro">写清楚要什么、做到什么程度算完成。发布后会出现在「发现」里，系统会推荐给做过相似任务的同学。</p>
+    <label class="field"><span>标题<small>用动词开头，比如「复现」「造」「整理」</small></span>
+      <input name="title" required maxlength="120" value="{{ form.get('title', '') }}" placeholder="例如：给模拟赛造数据" data-preview="title"></label>
+    <label class="field"><span>任务说明<small>背景和目标，一两句也行</small></span>
+      <textarea name="description" required maxlength="10000" placeholder="例如：周六模拟赛的 E 题还缺数据，标程在共享盘里。" data-preview="description">{{ form.get('description', '') }}</textarea></label>
+    <label class="field"><span>交付要求<small>验收时按这里判断</small></span>
+      <textarea name="requirements" required maxlength="10000" placeholder="例如：30 组数据，附生成脚本，写明每组用途。">{{ form.get('requirements', '') }}</textarea></label>
+    <div class="two">
+      <div class="field"><span>标签<small>最多 5 个，可以新建</small></span>
+        <div class="tag-input" data-tag-input><input name="tags" value="{{ form.get('tags', '') }}" placeholder="例如：数据 图论 PyTorch" list="known-tags" autocomplete="off" aria-label="标签，用空格或逗号分开" data-preview="tags"></div>
+        <datalist id="known-tags">{% for tag in known_tags %}<option value="{{ tag }}">{% endfor %}</datalist>
+        <div class="suggest" data-tag-suggest>{% for tag in known_tags[:8] %}<button type="button" data-tag="{{ tag }}">#{{ tag }}</button>{% endfor %}</div>
+      </div>
+      <label class="field"><span>项目<small>可选，新项目直接输入名字</small></span>
+        <input name="project" maxlength="30" value="{{ form.get('project', '') }}" list="known-projects" placeholder="例如：校赛 2026" autocomplete="off" data-preview="project">
+        <datalist id="known-projects">{% for name in projects %}<option value="{{ name }}">{% endfor %}</datalist></label>
+    </div>
+    <div class="field"><span>预计投入<small>决定完成后给多少经验、得到哪种勋章</small></span>
+      <div class="seg">{% for key, label in effort_labels.items() %}
+        <label class="opt"><input type="radio" name="importance" value="{{ key }}" {% if importance == key %}checked{% endif %} data-preview="importance">{{ medal(key ~ '-normal') }}<span><b>{{ label }}</b><small>{{ importance_labels[key] }} · 得「{{ medals[key ~ '-normal'].name }}」· {{ task_xp(key ~ '-normal') }} 经验</small></span></label>
+      {% endfor %}</div></div>
+    <div class="two">
+      <div class="field"><span>紧急程度</span><div class="seg two-up">
+        <label class="opt"><input type="radio" name="urgency" value="normal" {% if urgency == 'normal' %}checked{% endif %} data-preview="urgency"><span class="dot-ic">缓</span><span><b>不急</b><small>按截止来</small></span></label>
+        <label class="opt"><input type="radio" name="urgency" value="urgent" {% if urgency == 'urgent' %}checked{% endif %} data-preview="urgency"><span class="dot-ic hot">急</span><span><b>加急</b><small>经验 +50%</small></span></label></div></div>
+      <label class="field"><span>截止时间<small>团队所在时区</small></span>
+        <input type="datetime-local" name="deadline" required value="{{ form.get('deadline', '') }}"></label>
+    </div>
+    <div class="submit-row"><p>有人认领前都可以在讨论区补充说明。</p><button class="btn btn-big primary" type="submit">{{ icon('plus') }}发布</button></div>
+  </form>
+
+  <aside class="preview-col" aria-label="预览">
+    <span class="label">「发现」里会这样显示</span>
+    <article class="card" data-preview-card>
+      <div class="card-top"><span data-preview-medal>{{ medal(importance ~ '-' ~ urgency) }}</span><span class="due">刚发布</span></div>
+      <h3 data-out="title">{{ form.get('title') or '任务标题' }}</h3>
+      <p class="goal" data-out="description">{{ form.get('description') or '任务说明会显示在这里。' }}</p>
+      <div class="tags" data-out="tags"></div>
+      <div class="card-foot"><span class="eff" data-out="effort">{{ effort_labels[importance] }}</span><span class="xp" data-out="xp">+{{ task_xp(importance ~ '-' ~ urgency) }}</span><span class="who">{{ ava(g.user.name, g.user.id) }}{{ g.user.name }}</span></div>
+    </article>
+    <div class="explain panel"><span data-preview-medal-big>{{ medal(importance ~ '-' ~ urgency, 'anim') }}</span><div><b data-out="medal">完成的人得到「{{ medals[importance ~ '-' ~ urgency].name }}」</b><p>任务越重，勋章填得越满、经验越多；加急的勋章换暖色，挂「急」角标。</p></div></div>
+    <template data-medal-template>{% for key in medals %}<span data-key="{{ key }}">{{ medal(key) }}</span>{% endfor %}</template>
+  </aside>
+</div>
+{% endblock %}

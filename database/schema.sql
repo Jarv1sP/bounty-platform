@@ -32,3 +32,26 @@ CREATE TABLE IF NOT EXISTS featured_honors (
  medal_key TEXT NOT NULL,
  PRIMARY KEY(user_id,slot), UNIQUE(user_id,medal_key)
 );
+CREATE TABLE IF NOT EXISTS task_tags (
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ tag TEXT NOT NULL,
+ PRIMARY KEY(task_id,tag)
+);
+CREATE INDEX IF NOT EXISTS task_tags_by_tag ON task_tags(tag);
+CREATE TABLE IF NOT EXISTS interests (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ tag TEXT NOT NULL,
+ PRIMARY KEY(user_id,tag)
+);
+CREATE TABLE IF NOT EXISTS dismissals (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,task_id)
+);
+CREATE TABLE IF NOT EXISTS claps (
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(task_id,user_id)
+);

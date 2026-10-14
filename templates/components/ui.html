@@ -1,0 +1,47 @@
+{% from 'components/medal.html' import medal %}
+{% macro logo() -%}
+<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="14" cy="14" r="10" fill="#E54465"/><rect x="20" y="20" width="16" height="16" fill="#2866B1"/><path d="M4 36A16 16 0 0 1 20 20V36Z" fill="#F2B700"/></svg>
+{%- endmacro %}
+
+{# 头像只用名字首字和一个稳定的颜色，不需要上传图片 #}
+{% macro ava(name, uid=0, cls='') -%}
+{%- set palette = ['#2866B1', '#008FBF', '#D98200', '#00A27A', '#E54465', '#9C6B3F', '#1B1D2A'] -%}
+<span class="ava{{ ' ' ~ cls if cls }}" style="--c:{{ palette[(uid or name|length) % 7] }}" aria-hidden="true">{{ name[:1] }}</span>
+{%- endmacro %}
+
+{% macro due(task) -%}
+{%- set info = due_label(task.deadline) -%}
+{%- if task.status == 'done' -%}<span class="due">已完成</span>
+{%- else -%}<span class="due{{ ' soon' if info[1] }}">{{ info[0] }}</span>{%- endif -%}
+{%- endmacro %}
+
+{# 名牌：背景取第一枚展示勋章的颜色，装饰图形就是点、线、面 #}
+{% macro plate(name, level, featured, size='') -%}
+{%- set bg = medals[featured[0]].hue if featured else '#9A9DA8' -%}
+<div class="plate{{ ' ' ~ size if size }}" style="--plate:{{ bg }}">
+  <svg class="plate-art" viewBox="0 0 280 180" preserveAspectRatio="xMaxYMax meet" aria-hidden="true">
+    <path d="M280 180H150A130 130 0 0 1 280 50Z" fill="{{ '#2866B1' if bg == '#F2B700' else '#F2B700' }}"/>
+    <circle cx="168" cy="34" r="3.4" fill="#fff"/><circle cx="180" cy="34" r="3.4" fill="#fff"/><circle cx="191" cy="34" r="3.4" fill="#fff"/>
+    <path d="M198 34H246" stroke="#fff" stroke-width="6.8" stroke-linecap="round"/><circle cx="152" cy="34" r="7" fill="#1B1D2A"/>
+  </svg>
+  <div class="plate-head"><span class="plate-lv">Lv.{{ level.level }}</span><span class="plate-title">{{ level.name }}</span></div>
+  <b class="plate-name">{{ name }}</b>
+  <div class="plate-medals">{% for key in featured[:3] %}{{ medal(key, label=medals[key].name) }}{% endfor %}{% for _ in range(3 - featured[:3]|length) %}<i class="plate-slot"></i>{% endfor %}</div>
+</div>
+{%- endmacro %}
+
+{# 任务卡：点整张卡进详情；能补上收集册空格的任务会轻轻跳一下，贴「新勋章」 #}
+{% macro task_card(task, tags, earned, i=0) -%}
+{%- set key = medal_key(task) -%}
+{%- set wants = task.status == 'open' and key not in earned -%}
+<article class="card{{ ' done' if task.status == 'done' }}{{ ' wants' if wants }}" data-task="{{ task.id }}" style="--i:{{ i }}">
+  <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
+  <div class="card-top">{{ medal(key) }}{% if wants %}<span class="newtag">新勋章</span>{% endif %}{{ due(task) }}</div>
+  <h3>{{ task.title }}</h3>
+  <p class="goal">{{ task.description }}</p>
+  {% if tags %}<div class="tags">{% for tag in tags[:3] %}<span class="tag">{{ tag }}</span>{% endfor %}</div>{% endif %}
+  <div class="card-foot"><span class="eff">{{ effort_labels[task.importance] }}</span><span class="xp">+{{ task_xp(key) }}</span><span class="who">{{ ava(task.owner_name, task.owner_id) }}{{ task.owner_name }}</span></div>
+</article>
+{%- endmacro %}
+
+{% macro csrf() -%}<input type="hidden" name="csrf" value="{{ session.csrf }}">{%- endmacro %}

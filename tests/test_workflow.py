@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from app import create_app
 from bounty.db import connect, initialize
-from bounty.service import InvalidAction, act, create_task
+from bounty import discover, progress
+from bounty.service import InvalidAction, act, clap, create_task, dismiss, parse_tags, set_interests
 from bounty.honors import MEDALS, medal_key
 
 
@@ -37,9 +38,10 @@ class WorkflowTest(unittest.TestCase):
         owner, worker, other = self.clients
         base = f'/tasks/{self.task_id}'
         self.assertIn('入门文档', owner.get('/?category=文档').text)
-        self.assertNotIn('入门文档', other.get('/?scope=claimed').text)
+        self.assertIn('入门文档', owner.get('/?tag=文档').text)
+        self.assertNotIn('入门文档', other.get('/mine').text)
         self.post(worker, base + '/claim', {})
-        self.assertIn('入门文档', worker.get('/?scope=claimed').text)
+        self.assertIn('入门文档', worker.get('/mine').text)
         self.post(worker, base + '/submit', {'body': '第一版 https://example.test/doc'})
         result = self.post(owner, base + '/return', {'body': ''})
         self.assertIn('请填写退回原因', result.text)
@@ -48,7 +50,7 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(db.execute('SELECT COUNT(*) FROM honors').fetchone()[0], 0)
         self.post(worker, base + '/submit', {'body': '修订版，已补充安装步骤'})
         self.post(owner, base + '/accept', {})
-        self.assertIn('饭团', worker.get('/honors').text)
+        self.assertIn('class="tile" data-collection-key="standard-normal"', worker.get('/honors').text)
         self.assertIn('入门文档', worker.get('/honors').text)
         self.assertNotIn('入门文档', other.get('/honors').text)
         with connect(self.path) as db:
@@ -234,15 +236,18 @@ class WorkflowTest(unittest.TestCase):
             seed_demo(path)
         with connect(path) as db:
             counts = dict(db.execute('SELECT status,COUNT(*) FROM tasks GROUP BY status').fetchall())
-            self.assertEqual(counts, {'open': 16, 'active': 4, 'review': 2, 'done': 2})
-            self.assertEqual(db.execute('SELECT COUNT(*) FROM honors').fetchone()[0], 2)
+            self.assertEqual(counts, {'open': 15, 'active': 3, 'review': 2, 'done': 4})
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM honors').fetchone()[0], 4)
+            self.assertEqual(db.execute('SELECT COUNT(DISTINCT project) FROM tasks').fetchone()[0], 5)
             self.assertFalse(db.execute('PRAGMA foreign_key_check').fetchall())
         app = create_app({'TESTING': True, 'DATABASE': path, 'SECRET_KEY': 'test'})
         client = app.test_client()
         self.post(client, '/auth/login', {'name': '认领人', 'password': 'demo12345'})
         response = client.get('/')
-        self.assertEqual(response.text.count('data-task='), 24)
+        # 发现页默认只列可认领的任务，一页 12 个
+        self.assertEqual(response.text.count('data-task='), 15)
         self.assertEqual(response.text.count('class="wall-zone"'), 2)
+        self.assertEqual(response.text.count('data-pick='), 3)
 
     def test_auth_csrf_and_persistence(self):
         client = self.app.test_client()
@@ -256,6 +261,125 @@ class WorkflowTest(unittest.TestCase):
         with connect(second_app.config['DATABASE']) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM tasks').fetchone()[0], 2)
             self.assertNotEqual(db.execute('SELECT password FROM users WHERE id=1').fetchone()[0], 'test-password')
+
+    def finish(self, task_id, worker=2, owner=1, body=''):
+        act(self.path, task_id, worker, 'claim')
+        act(self.path, task_id, worker, 'submit', '成果')
+        act(self.path, task_id, owner, 'accept', body)
+
+    def test_tags_and_projects_are_free_form(self):
+        self.assertEqual(parse_tags('数据, 图论，PyTorch、 #校赛  数据'), ['数据', '图论', 'PyTorch', '校赛'])
+        for raw in ('a b c d e f', '这个标签实在是太长了超过了十六个字的限制'):
+            with self.assertRaises(InvalidAction):
+                parse_tags(raw)
+        with self.assertRaises(InvalidAction):
+            create_task(self.path, 1, {**self.data, 'category': '', 'tags': ''})
+        task_id = create_task(self.path, 1, {**self.data, 'title': '造模拟赛数据', 'tags': '数据 图论', 'project': '校赛 2026'})
+        with connect(self.path) as db:
+            self.assertEqual(discover.tags_by_task(db, [task_id])[task_id], ['数据', '图论'])
+        owner = self.clients[0]
+        card = f'data-task="{task_id}"'
+        self.assertIn(card, owner.get('/?tag=图论').text)
+        self.assertNotIn(card, owner.get('/?tag=文档').text)
+        self.assertIn(card, owner.get('/?project=校赛 2026').text)
+        self.assertIn('#图论', owner.get('/').text)
+
+    def test_recommendations_follow_history_interests_and_dismissals(self):
+        data_task = create_task(self.path, 1, {**self.data, 'title': '清洗比赛提交记录', 'description': '去掉重复提交和测试账号', 'tags': '数据'})
+        self.finish(data_task)
+        similar = create_task(self.path, 1, {**self.data, 'title': '清洗题目标签', 'description': '去掉重复和错标的标签', 'tags': '数据'})
+        graph = create_task(self.path, 1, {**self.data, 'title': '讲一次图论', 'tags': '图论', 'project': '新人培养'})
+        with connect(self.path) as db:
+            picks = {pick['task']['id']: dict(pick['reasons']) for pick in discover.recommend(db, 2, limit=10)}
+        self.assertIn('skill', picks[similar])
+        self.assertIn('new-project', picks[graph])
+        set_interests(self.path, 3, '图论')
+        with connect(self.path) as db:
+            first = discover.recommend(db, 3, limit=1)[0]
+        self.assertEqual(first['task']['id'], graph)
+        self.assertEqual(first['reasons'][0][0], 'interest')
+        dismiss(self.path, graph, 3)
+        with connect(self.path) as db:
+            self.assertNotIn(graph, [pick['task']['id'] for pick in discover.recommend(db, 3, limit=10)])
+            # 自己发布的任务不会推荐给自己
+            self.assertFalse(discover.recommend(db, 1, limit=10))
+
+    def test_claps_are_once_per_teammate_and_never_for_yourself(self):
+        with self.assertRaises(InvalidAction):
+            clap(self.path, self.task_id, 3)
+        self.finish(self.task_id)
+        with self.assertRaises(InvalidAction):
+            clap(self.path, self.task_id, 2)
+        self.assertEqual(clap(self.path, self.task_id, 3), 1)
+        self.assertEqual(clap(self.path, self.task_id, 3), 1)
+        other = self.clients[2]
+        other.get('/')
+        with other.session_transaction() as session:
+            csrf = session['csrf']
+        response = other.post(f'/tasks/{self.task_id}/clap', data={'csrf': csrf}, headers={'Accept': 'application/json'})
+        self.assertEqual(response.json, {'claps': 1})
+        with connect(self.path) as db:
+            self.assertEqual(discover.person_stats(db, 2)['claps'], 1)
+
+    def test_experience_levels_and_reveal_tiers(self):
+        self.assertEqual([progress.level_floor(n) for n in (1, 2, 3, 4)], [0, 50, 150, 300])
+        self.assertEqual(progress.task_xp('light-normal'), 10)
+        self.assertEqual(progress.task_xp('major-urgent'), 120)
+        self.assertEqual(progress.level_info(49)['level'], 1)
+        self.assertEqual(progress.level_info(50)['level'], 2)
+        for key in ('light-normal', 'standard-normal', 'major-normal', 'light-normal'):
+            importance, urgency = key.split('-')
+            self.finish(create_task(self.path, 1, {**self.data, 'importance': importance, 'urgency': urgency}), body='写得很清楚')
+        worker = self.clients[1]
+        worker.get('/honors')
+        with worker.session_transaction() as session:
+            csrf = session['csrf']
+        result = worker.post('/honors/reveal', data={'csrf': csrf}).json
+        self.assertEqual([award['tier'] for award in result['awards']], ['new', 'new', 'row', 'plain'])
+        self.assertEqual(result['awards'][2]['row'], '冷色一行')
+        self.assertEqual(result['awards'][0]['praise'], '写得很清楚')
+        self.assertEqual((result['before']['level'], result['after']['level'], result['after']['xp']), (1, 2, 130))
+        with connect(self.path) as db:
+            self.assertTrue(progress.person_progress(db, 2)['rows']['normal'])
+
+    def test_team_bundle_fills_matching_slots(self):
+        honors = [{'medal_key': key} for key in ('light-urgent', 'standard-normal', 'major-normal', 'light-normal')]
+        filled = progress._fill(('urgent', 'standard', 'light'), honors)
+        self.assertEqual([honor['medal_key'] for honor in filled], ['light-urgent', 'standard-normal', 'light-normal'])
+        self.assertEqual(progress._fill(('major', 'major'), honors)[1], None)
+        self.finish(self.task_id)
+        with connect(self.path) as db:
+            bundles = progress.team_bundles(db)
+        self.assertEqual(len(bundles['current']['slots']), 3)
+        self.assertLessEqual(bundles['pieces'], bundles['piece_count'])
+
+    def test_naive_deadline_uses_team_timezone(self):
+        moment = datetime.now(timezone.utc) + timedelta(days=3)
+        naive = moment.astimezone(timezone(timedelta(hours=8))).replace(tzinfo=None).isoformat(timespec='minutes')
+        task_id = create_task(self.path, 1, {**self.data, 'deadline': naive})
+        with connect(self.path) as db:
+            stored = datetime.fromisoformat(db.execute('SELECT deadline FROM tasks WHERE id=?', (task_id,)).fetchone()[0])
+        self.assertLess(abs((stored - moment).total_seconds()), 61)
+
+    def test_my_tasks_group_by_whose_move_it_is(self):
+        returned = create_task(self.path, 1, {**self.data, 'title': '被退回的任务'})
+        act(self.path, returned, 2, 'claim')
+        act(self.path, returned, 2, 'submit', '第一版')
+        act(self.path, returned, 1, 'return', '补测试')
+        waiting = create_task(self.path, 1, {**self.data, 'title': '等验收的任务'})
+        act(self.path, waiting, 2, 'claim')
+        act(self.path, waiting, 2, 'submit', '成果')
+        with connect(self.path) as db:
+            worker = discover.my_tasks(db, 2)
+            owner = discover.my_tasks(db, 1)
+        self.assertEqual([task['title'] for task in worker['yours']], ['被退回的任务'])
+        self.assertEqual(worker['yours'][0]['last_kind'], 'return')
+        self.assertEqual([task['title'] for task in worker['waiting']], ['等验收的任务'])
+        self.assertIn('等验收的任务', [task['title'] for task in owner['yours']])
+        self.assertIn('入门文档', [task['title'] for task in owner['unclaimed']])
+        page = self.clients[1].get('/mine').text
+        self.assertIn('被退回，等你改', page)
+
 
 if __name__ == '__main__':
     unittest.main()

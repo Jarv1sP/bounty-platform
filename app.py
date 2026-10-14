@@ -1,13 +1,30 @@
 import os
 import secrets
 import sqlite3
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
+from bounty import discover, progress
 from bounty.db import connect, initialize
-from bounty.honors import IMPORTANCE, URGENCY, MEDALS, medal_key
-from bounty.service import CATEGORIES, STATUSES, KINDS, InvalidAction, act, create_task, now, required
+from bounty.honors import EFFORT, IMPORTANCE, URGENCY, MEDALS, medal_key
+from bounty.service import (CATEGORIES, STATUSES, KINDS, TEAM_TZ, InvalidAction, act, clap, create_task, dismiss, now,
+                            required, set_interests)
+
+PAGE_SIZE = 12
+
+
+def due_label(deadline):
+    """Countdown text for cards: (text, is_urgent_looking)."""
+    moment = datetime.fromisoformat(deadline)
+    left = (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)) - datetime.now(timezone.utc)
+    if left.total_seconds() < 0:
+        return '已截止', True
+    if left.days == 0:
+        return '今天截止', True
+    return f'剩 {left.days} 天', left.days < 2
+PRAISE = ('靠谱，一次就过', '超出预期', '救了急', '写得很清楚')
 
 
 def create_app(config=None):
@@ -33,11 +50,14 @@ def create_app(config=None):
         app.config['SECRET_KEY'] = secret_path.read_text()
     initialize(app.config['DATABASE'])
 
+    def database(write=False):
+        return connect(app.config['DATABASE'], write=write)
+
     @app.before_request
     def load_user():
         g.user = None
         if session.get('user_id'):
-            with connect(app.config['DATABASE']) as db:
+            with database() as db:
                 g.user = db.execute('SELECT id,name FROM users WHERE id=?', (session['user_id'],)).fetchone()
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
@@ -52,14 +72,48 @@ def create_app(config=None):
             return view(*args, **kwargs)
         return wrapped
 
+    # Globals (not a context processor) so imported macros such as the medal can read them too.
+    app.jinja_env.globals.update(categories=CATEGORIES, statuses=STATUSES, kinds=KINDS, importance_labels=IMPORTANCE,
+                                 urgency_labels=URGENCY, effort_labels=EFFORT, medals=MEDALS, medal_key=medal_key,
+                                 task_xp=progress.task_xp, praise_options=PRAISE, due_label=due_label)
+
+    def page_url(**changes):
+        """Same page, same filters, with a few changed; empty values drop out of the URL."""
+        args = {**request.args.to_dict(), **changes}
+        return url_for(request.endpoint, **{k: v for k, v in args.items() if v not in ('', None)})
+
+    app.jinja_env.globals['page_url'] = page_url
+
     @app.context_processor
     def context():
-        return dict(categories=CATEGORIES, statuses=STATUSES, kinds=KINDS, current_time=now(),
-                    importance_labels=IMPORTANCE, urgency_labels=URGENCY, medals=MEDALS, medal_key=medal_key)
+        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0)
+        if g.get('user'):
+            with database() as db:
+                extra['mailbox'] = db.execute('SELECT COUNT(*) FROM honors WHERE user_id=? AND seen_at IS NULL',
+                                              (g.user['id'],)).fetchone()[0]
+                extra['me'] = progress.person_progress(db, g.user['id'])
+                # 轮到我的事：我在做的、等我验收的
+                extra['my_turn'] = db.execute('''SELECT COUNT(*) FROM tasks WHERE (assignee_id=? AND status='active')
+                    OR (owner_id=? AND status='review')''', (g.user['id'], g.user['id'])).fetchone()[0]
+        return extra
+
+    def local(value):
+        moment = datetime.fromisoformat(value)
+        return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(TEAM_TZ)
 
     @app.template_filter('date')
     def date(value):
-        return value[:16].replace('T', ' ') + ' UTC'
+        return f'{local(value):%m/%d %H:%M}' if value else ''
+
+    @app.template_filter('md')
+    def month_day(value):
+        moment = local(value) if value else None
+        return f'{moment.month}/{moment.day}' if moment else ''
+
+    def back():
+        # Only follow a referrer from this same site, so a crafted Referer cannot bounce people elsewhere.
+        target = request.referrer or ''
+        return redirect(target if target.startswith(request.host_url) else url_for('index'))
 
     @app.route('/auth/<mode>', methods=['GET', 'POST'])
     def auth(mode):
@@ -71,7 +125,7 @@ def create_app(config=None):
                 password = request.form.get('password', '')
                 if not 8 <= len(password) <= 128:
                     raise InvalidAction('密码长度须为 8–128 个字符。')
-                with connect(app.config['DATABASE'], write=True) as db:
+                with database(write=True) as db:
                     if mode == 'register':
                         try:
                             user_id = db.execute('INSERT INTO users (name,password) VALUES (?,?)', (name, generate_password_hash(password))).lastrowid
@@ -98,27 +152,70 @@ def create_app(config=None):
     @login_required
     def index():
         scope = request.args.get('scope', 'all')
-        category, status, query = (request.args.get(k, '') for k in ('category', 'status', 'q'))
+        tag = request.args.get('tag') or request.args.get('category', '')
+        project, query, effort = (request.args.get(k, '') for k in ('project', 'q', 'effort'))
+        status = request.args.get('status', 'open')
+        unlock = request.args.get('unlock') == '1'
+        batch = request.args.get('batch', '0')
+        batch = int(batch) if batch.isdigit() else 0
         clauses, params = [], []
         if scope in ('published', 'claimed'):
             clauses.append('t.owner_id=?' if scope == 'published' else 't.assignee_id=?')
             params.append(g.user['id'])
-        if category in CATEGORIES:
-            clauses.append('t.category=?'); params.append(category)
+        if tag:
+            clauses.append('t.id IN (SELECT task_id FROM task_tags WHERE tag=?)'); params.append(tag)
+        if project:
+            clauses.append('t.project=?'); params.append(project)
         if status in STATUSES:
             clauses.append('t.status=?'); params.append(status)
+        if effort in IMPORTANCE:
+            clauses.append('t.importance=?'); params.append(effort)
         if query:
             clauses.append('(t.title LIKE ? OR t.description LIKE ?)'); params.extend([f'%{query}%'] * 2)
-        with connect(app.config['DATABASE']) as db:
-            tasks = db.execute('SELECT t.*,u.name owner_name FROM tasks t JOIN users u ON u.id=t.owner_id' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY t.id DESC', params).fetchall()
+        with database() as db:
+            earned = discover.earned_keys(db, g.user['id'])
+            tasks = db.execute('SELECT t.*,u.name owner_name FROM tasks t JOIN users u ON u.id=t.owner_id' +
+                               (' WHERE ' + ' AND '.join(clauses) if clauses else '') +
+                               " ORDER BY t.status='done', t.urgency='urgent' DESC, t.deadline, t.id DESC", params).fetchall()
+            if unlock:
+                tasks = [task for task in tasks if medal_key(task) not in earned]
             counts = {row['status']: row['n'] for row in db.execute('SELECT status,COUNT(*) n FROM tasks GROUP BY status')}
-            my_honors = db.execute('SELECT medal_key FROM honors WHERE user_id=?', (g.user['id'],)).fetchall()
-            earned_keys = {row['medal_key'] for row in my_honors}
-            featured = [row['medal_key'] for row in db.execute(
-                'SELECT medal_key FROM featured_honors WHERE user_id=? ORDER BY slot', (g.user['id'],))]
-        return render_template('index.html', tasks=tasks, scope=scope, category=category, status=status, query=query, counts=counts,
-                               earned_keys=earned_keys, honor_total=len(my_honors),
-                               medal_preview=featured or list(dict.fromkeys([*sorted(earned_keys), *MEDALS]))[:3])
+            # 筛选条从现有任务里长出来：新标签、新项目一出现就能点
+            top_tags = [row['tag'] for row in db.execute('''SELECT tag,COUNT(*) n FROM task_tags JOIN tasks t ON t.id=task_id
+                WHERE t.status='open' GROUP BY tag ORDER BY n DESC,tag LIMIT 10''')]
+            projects = [row['project'] for row in db.execute('''SELECT project,MAX(created_at) latest FROM tasks
+                WHERE project IS NOT NULL GROUP BY project ORDER BY latest DESC''')]
+            tags_of = discover.tags_by_task(db)
+            picks = discover.recommend(db, g.user['id'], batch=batch)
+            hand = db.execute('''SELECT * FROM tasks WHERE (assignee_id=? AND status='active') OR (owner_id=? AND status='review')
+                ORDER BY deadline LIMIT 3''', (g.user['id'], g.user['id'])).fetchall()
+            feed = discover.team_feed(db, g.user['id'])
+            week = discover.week_summary(db)
+            bundles = progress.team_bundles(db)
+            has_interests = bool(db.execute('SELECT 1 FROM interests WHERE user_id=?', (g.user['id'],)).fetchone())
+        zones = [tasks[i:i + PAGE_SIZE] for i in range(0, len(tasks), PAGE_SIZE)] or [[]]
+        unlockable = sum(1 for task in tasks if task['status'] == 'open' and medal_key(task) not in earned)
+        return render_template('index.html', tasks=tasks, zones=zones, scope=scope, tag=tag, project=project, status=status,
+                               query=query, effort=effort, unlock=unlock, batch=batch, counts=counts, picks=picks, hand=hand,
+                               feed=feed, week=week, bundles=bundles, earned_keys=earned, unlockable=unlockable,
+                               top_tags=top_tags, projects=projects, tags_of=tags_of, has_interests=has_interests)
+
+    @app.post('/me/interests')
+    @login_required
+    def interests():
+        try:
+            set_interests(app.config['DATABASE'], g.user['id'], ' '.join(request.form.getlist('tags')))
+            flash('记下了，推荐会按这些方向来。', 'success')
+        except InvalidAction as error:
+            flash(str(error), 'error')
+        return back()
+
+    @app.get('/mine')
+    @login_required
+    def mine():
+        with database() as db:
+            groups = discover.my_tasks(db, g.user['id'])
+        return render_template('mine.html', groups=groups)
 
     @app.route('/tasks/new', methods=['GET', 'POST'])
     @login_required
@@ -130,19 +227,40 @@ def create_app(config=None):
                 return redirect(url_for('detail', task_id=task_id))
             except InvalidAction as error:
                 flash(str(error), 'error')
-        return render_template('new.html')
+        with database() as db:
+            known_tags = [row['tag'] for row in db.execute('SELECT tag,COUNT(*) n FROM task_tags GROUP BY tag ORDER BY n DESC,tag LIMIT 40')]
+            projects = [row['project'] for row in db.execute('SELECT DISTINCT project FROM tasks WHERE project IS NOT NULL ORDER BY project')]
+        return render_template('new.html', known_tags=known_tags or list(CATEGORIES), projects=projects)
 
     @app.get('/honors')
     @login_required
     def honors():
-        with connect(app.config['DATABASE']) as db:
-            awards = db.execute('''SELECT h.*,t.title,u.name owner_name FROM honors h
-                JOIN tasks t ON t.id=h.task_id JOIN users u ON u.id=t.owner_id
+        with database() as db:
+            awards = db.execute('''SELECT h.*,t.title,u.name owner_name,
+                    (SELECT body FROM events e WHERE e.task_id=h.task_id AND e.kind='accept' ORDER BY e.id DESC LIMIT 1) praise,
+                    (SELECT COUNT(*) FROM claps c WHERE c.task_id=h.task_id) claps
+                FROM honors h JOIN tasks t ON t.id=h.task_id JOIN users u ON u.id=t.owner_id
                 WHERE h.user_id=? ORDER BY h.awarded_at DESC,h.task_id DESC''', (g.user['id'],)).fetchall()
             featured = [row['medal_key'] for row in db.execute(
                 'SELECT medal_key FROM featured_honors WHERE user_id=? ORDER BY slot', (g.user['id'],))]
-        counts = {key: sum(a['medal_key'] == key for a in awards) for key in MEDALS}
-        return render_template('honors.html', awards=awards, medal_counts=counts, featured=featured)
+            stats = discover.person_stats(db, g.user['id'])
+            levels = progress.everyone_levels(db)
+            team = []
+            for user in db.execute('SELECT id,name FROM users ORDER BY id').fetchall():
+                shown = [row['medal_key'] for row in db.execute(
+                    'SELECT medal_key FROM featured_honors WHERE user_id=? ORDER BY slot', (user['id'],))]
+                kinds = [row['medal_key'] for row in db.execute(
+                    'SELECT medal_key,COUNT(*) n FROM honors WHERE user_id=? GROUP BY medal_key ORDER BY n DESC', (user['id'],))]
+                team.append(dict(id=user['id'], name=user['name'], featured=shown or kinds[:3],
+                                 level=levels.get(user['id'], progress.level_info(0))))
+            team.sort(key=lambda person: (-person['level']['xp'], person['id']))
+            interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=?', (g.user['id'],))]
+            bundles = progress.team_bundles(db)
+        by_key = {key: [award for award in awards if award['medal_key'] == key] for key in MEDALS}
+        # 没挑过名牌勋章的人，先用拿得最多的三种撑起名牌
+        plate_medals = featured or sorted((key for key in MEDALS if by_key[key]), key=lambda key: -len(by_key[key]))[:3]
+        return render_template('honors.html', awards=awards, by_key=by_key, featured=featured, plate_medals=plate_medals,
+                               stats=stats, team=team, interests=interests, bundles=bundles, rows=progress.ROWS)
 
     @app.post('/honors/featured')
     @login_required
@@ -151,7 +269,7 @@ def create_app(config=None):
         try:
             if len(keys) > 3 or any(key not in MEDALS for key in keys):
                 raise InvalidAction('最多展示三种已获得的勋章。')
-            with connect(app.config['DATABASE'], write=True) as db:
+            with database(write=True) as db:
                 earned = {row['medal_key'] for row in db.execute(
                     'SELECT medal_key FROM honors WHERE user_id=?', (g.user['id'],))}
                 if any(key not in earned for key in keys):
@@ -159,7 +277,7 @@ def create_app(config=None):
                 db.execute('DELETE FROM featured_honors WHERE user_id=?', (g.user['id'],))
                 db.executemany('INSERT INTO featured_honors (user_id,slot,medal_key) VALUES (?,?,?)',
                                [(g.user['id'], i + 1, key) for i, key in enumerate(keys)])
-            flash('展示位已保存。', 'success')
+            flash('名牌已保存。', 'success')
         except InvalidAction as error:
             flash(str(error), 'error')
         return redirect(url_for('honors'))
@@ -168,28 +286,75 @@ def create_app(config=None):
     @login_required
     def reveal_honors():
         # Read and mark in one transaction: refreshing or opening two tabs cannot replay a batch.
-        with connect(app.config['DATABASE'], write=True) as db:
-            awards = db.execute("""SELECT h.task_id,h.medal_key,t.title FROM honors h
-                JOIN tasks t ON t.id=h.task_id WHERE h.user_id=? AND h.seen_at IS NULL
-                ORDER BY h.awarded_at,h.task_id LIMIT 12""", (g.user['id'],)).fetchall()
+        with database(write=True) as db:
+            awards = db.execute("""SELECT h.task_id,h.medal_key,t.title,u.name owner,
+                    (SELECT body FROM events e WHERE e.task_id=h.task_id AND e.kind='accept' ORDER BY e.id DESC LIMIT 1) praise
+                FROM honors h JOIN tasks t ON t.id=h.task_id JOIN users u ON u.id=t.owner_id
+                WHERE h.user_id=? AND h.seen_at IS NULL ORDER BY h.awarded_at,h.task_id LIMIT 12""", (g.user['id'],)).fetchall()
             db.executemany('UPDATE honors SET seen_at=? WHERE task_id=? AND user_id=?',
                            [(now(), row['task_id'], g.user['id']) for row in awards])
-        return jsonify(awards=[dict(row) for row in awards])
+            after = progress.person_progress(db, g.user['id'])
+        # 这一批之前是什么样：用来算"新种类""凑齐一行""升级"这些要放大庆祝的时刻
+        counts = dict(after['counts'])
+        for row in awards:
+            counts[row['medal_key']] -= 1
+        xp_before = after['xp'] - sum(progress.task_xp(row['medal_key']) for row in awards)
+        items = []
+        for row in awards:
+            first = counts[row['medal_key']] == 0
+            counts[row['medal_key']] += 1
+            completed_row = next((label for label, members in progress.ROWS.values()
+                                  if row['medal_key'] in members and first and all(counts[k] for k in members)), None)
+            items.append(dict(row, name=MEDALS[row['medal_key']]['name'], xp=progress.task_xp(row['medal_key']),
+                              first=first, row=completed_row, tier='row' if completed_row else ('new' if first else 'plain')))
+        return jsonify(awards=items, before=progress.level_info(xp_before),
+                       after={k: after[k] for k in ('xp', 'level', 'name', 'into', 'span', 'to_next', 'percent', 'kinds', 'complete')})
 
     @app.get('/tasks/<int:task_id>')
     @login_required
     def detail(task_id):
-        with connect(app.config['DATABASE']) as db:
+        with database() as db:
             task = db.execute('''SELECT t.*,u.name owner_name,a.name assignee_name FROM tasks t
                 JOIN users u ON u.id=t.owner_id LEFT JOIN users a ON a.id=t.assignee_id WHERE t.id=?''', (task_id,)).fetchone()
             if not task:
                 abort(404)
             events = db.execute('SELECT e.*,u.name FROM events e JOIN users u ON u.id=e.user_id WHERE task_id=? ORDER BY e.id', (task_id,)).fetchall()
             award = db.execute('SELECT * FROM honors WHERE task_id=?', (task_id,)).fetchone()
+            tags = discover.tags_by_task(db, [task_id])[task_id]
+            claps = db.execute('SELECT COUNT(*) n, COALESCE(SUM(user_id=?),0) mine FROM claps WHERE task_id=?',
+                               (g.user['id'], task_id)).fetchone()
+            earned = discover.earned_keys(db, g.user['id'])
+            why = []
+            if task['status'] == 'open' and task['owner_id'] != g.user['id']:
+                why = next((pick['reasons'] for pick in discover.recommend(db, g.user['id'], limit=100)
+                            if pick['task']['id'] == task_id), [])
         feedback = session.pop('task_feedback', None)
         if feedback and feedback['task_id'] != task_id:
             feedback = None
-        return render_template('detail.html', task=task, events=events, award=award, feedback=feedback)
+        return render_template('detail.html', task=task, events=events, award=award, feedback=feedback, tags=tags,
+                               claps=claps, new_kind=medal_key(task) not in earned, why=why[:3])
+
+    @app.post('/tasks/<int:task_id>/clap')
+    @login_required
+    def clap_task(task_id):
+        wants_json = request.accept_mimetypes.best == 'application/json'
+        try:
+            count = clap(app.config['DATABASE'], task_id, g.user['id'])
+        except InvalidAction as error:
+            if wants_json:
+                return jsonify(error=str(error)), 400
+            flash(str(error), 'error')
+            return back()
+        return jsonify(claps=count) if wants_json else back()
+
+    @app.post('/tasks/<int:task_id>/dismiss')
+    @login_required
+    def dismiss_task(task_id):
+        try:
+            dismiss(app.config['DATABASE'], task_id, g.user['id'])
+        except InvalidAction as error:
+            flash(str(error), 'error')
+        return back()
 
     @app.post('/tasks/<int:task_id>/<action>')
     @login_required
