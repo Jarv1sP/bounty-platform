@@ -1,0 +1,147 @@
+"""Optional Chromium smoke check; isolated users/database and a temporary loopback server."""
+import base64,json,subprocess,tempfile,time,urllib.request,threading,sys,os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import websocket
+sys.path.insert(0,str(Path.cwd()))
+from app import create_app
+from bounty.db import connect
+from bounty.service import create_task
+from werkzeug.security import generate_password_hash
+from werkzeug.serving import make_server
+binary=os.environ.get('BOUNTY_BROWSER')
+if not binary:
+ candidates=sorted((Path.home()/'.cache/ms-playwright').glob('chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell'))
+ if not candidates: raise SystemExit('Set BOUNTY_BROWSER to a Chromium/headless-shell executable.')
+ binary=str(candidates[-1])
+Path('previews').mkdir(exist_ok=True)
+with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
+ app=create_app({'DATABASE':root+'/db.sqlite3','SECRET_KEY':'isolated-browser-test','TESTING':True})
+ with connect(app.config['DATABASE'],write=True) as db:
+  db.executemany('INSERT INTO users(name,password) VALUES (?,?)',[(name,generate_password_hash('test-password')) for name in ('发布者','认领人')])
+ deadline = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(timespec='minutes')
+ for i in range(12):
+  create_task(app.config['DATABASE'],1,dict(title=f'墙面测试任务 {i+1}',description='真实数据库任务',requirements='文字成果',category='文档',importance='standard',urgency='normal',deadline=deadline))
+ server=make_server('127.0.0.1',0,app,threaded=True)
+ threading.Thread(target=server.serve_forever,daemon=True).start()
+ base='http://127.0.0.1:'+str(server.server_port)
+ profile=Path(root)/'chrome'
+ proc=subprocess.Popen([binary,'--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--remote-debugging-port=0','--remote-allow-origins=*','--user-data-dir='+str(profile),'about:blank'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ try:
+  for _ in range(100):
+   if (profile/'DevToolsActivePort').exists():break
+   time.sleep(.1)
+  port=(profile/'DevToolsActivePort').read_text().splitlines()[0]
+  pages=json.load(urllib.request.urlopen('http://127.0.0.1:'+port+'/json'))
+  ws=websocket.create_connection(pages[0]['webSocketDebuggerUrl'],timeout=15,suppress_origin=True)
+  seq=0
+  def call(method,params=None):
+   global seq
+   seq+=1;ws.send(json.dumps({'id':seq,'method':method,'params':params or {}}))
+   while True:
+    r=json.loads(ws.recv())
+    if r.get('id')==seq:
+     if 'error' in r:raise RuntimeError(r['error'])
+     return r.get('result',{})
+  def ev(code):
+   r=call('Runtime.evaluate',{'expression':code,'returnByValue':True,'awaitPromise':True})
+   if 'exceptionDetails' in r:raise RuntimeError(r['exceptionDetails'])
+   return r['result'].get('value')
+  def wait(expr):
+   for _ in range(100):
+    try:
+     if ev('Boolean('+expr+')'):return
+    except RuntimeError:pass
+    time.sleep(.05)
+   raise AssertionError(expr)
+  def nav(path):
+   call('Page.navigate',{'url':base+path})
+   wait("document.readyState==='complete' && location.pathname==="+json.dumps(path.split('?')[0]))
+  def click(selector):ev('document.querySelector('+json.dumps(selector)+').click()')
+  def shot(name):
+   data=call('Page.captureScreenshot',{'format':'png'})['data']
+   Path('previews/'+name+'.png').write_bytes(base64.b64decode(data))
+  def login(name):
+   nav('/auth/login')
+   ev('document.querySelector("[name=name]").value='+json.dumps(name)+';document.querySelector("[name=password]").value="test-password"')
+   click('form button');wait("location.pathname==='/' && document.querySelector('.workspace')")
+  call('Emulation.setDeviceMetricsOverride',{'width':1440,'height':1100,'deviceScaleFactor':1,'mobile':False})
+  login('发布者')
+  nav('/tasks/new')
+  ev("document.querySelector('[name=title]').value='整理入门文档';document.querySelector('[name=description]').value='整理安装步骤和常见问题';document.querySelector('[name=requirements]').value='提交成果链接';document.querySelector('[name=importance]').value='standard';document.querySelector('[name=urgency]').value='normal'")
+  ev('document.querySelector("[name=deadline]").value='+json.dumps(deadline[:16]))
+  click('form.editor button[type=submit], form.editor button.primary')
+  wait("location.pathname.startsWith('/tasks/') && !location.pathname.endsWith('/new')")
+  flow_path=ev('location.pathname')
+  assert ev("document.querySelector('h1').textContent.includes('整理入门文档')")
+  click('.account form button');wait("location.pathname==='/auth/login'")
+  login('认领人')
+  nav(flow_path);click('[data-action-form=claim] button')
+  wait("!!document.querySelector('[data-confirmed-action=claim]')")
+  assert ev("document.querySelector('[data-confirmed-action=claim]').textContent.includes('认领人')")
+  shot('claim-feedback')
+  nav(flow_path);assert not ev("!!document.querySelector('[data-confirmed-action]')")
+  ev("document.querySelector('[data-action-form=submit] textarea').value='https://example.test/document'")
+  click('[data-action-form=submit] button');wait("!!document.querySelector('[data-confirmed-action=submit]')")
+  click('.account form button');wait("location.pathname==='/auth/login'")
+  login('发布者');nav(flow_path)
+  click('[data-action-form=return] button')
+  assert not ev("document.querySelector('[data-action-form=return]').hasAttribute('aria-busy')")
+  ev("document.querySelector('[data-action-form=return] textarea').value='请补充安装截图'")
+  click('[data-action-form=return] button');wait("!!document.querySelector('[data-confirmed-action=return]')")
+  assert ev("!!document.querySelector('.event-return')")
+  click('.account form button');wait("location.pathname==='/auth/login'")
+  login('认领人');nav(flow_path)
+  ev("document.querySelector('[data-action-form=submit] textarea').value='已补充安装截图'")
+  click('[data-action-form=submit] button');wait("!!document.querySelector('[data-confirmed-action=submit]')")
+  click('.account form button');wait("location.pathname==='/auth/login'")
+  login('发布者');nav(flow_path);click('[data-action-form=accept] button')
+  wait("!!document.querySelector('[data-confirmed-action=accept]')")
+  nav('/honors');time.sleep(.2);assert not ev("document.querySelector('.award-dialog').open")
+  click('.account form button');wait("location.pathname==='/auth/login'")
+  login('认领人');nav('/honors');wait("document.querySelector('.award-dialog').open")
+  assert ev("document.querySelector('.award-items').textContent.includes('饭团')")
+  time.sleep(.85);shot('medal-reveal')
+  click('[data-close-awards]');wait("!document.querySelector('.award-dialog').open")
+  assert ev("!!document.querySelector('.collection-new')")
+  nav('/honors');time.sleep(.3);assert not ev("document.querySelector('.award-dialog').open")
+  click('[data-collection-key="standard-normal"] summary')
+  assert ev("document.querySelector('[data-collection-key=\"standard-normal\"]').open")
+  assert ev("document.querySelector('[data-collection-key=\"standard-normal\"] .honor-back').textContent.includes('整理入门文档')")
+  click('.shelf-editor summary');click('[name=medals][value="standard-normal"]');click('.shelf-editor button')
+  wait("!!document.querySelector('.notice.success')")
+  assert ev("document.querySelector('.shelf-slots').textContent.includes('饭团')")
+  nav('/');assert ev("document.querySelector('.mini-collection').textContent !== undefined")
+  wait("document.querySelectorAll('[data-task]').length===13")
+  assert ev("document.querySelectorAll('.wall-zone').length===2")
+  click('[data-wall-next]')
+  wait("document.querySelector('.wall-canvas').getAnimations().length===0")
+  assert ev("document.querySelector('.wall-canvas').dataset.zone==='1'")
+  click('[data-wall-prev]')
+  wait("document.querySelector('.wall-canvas').getAnimations().length===0")
+  click('[data-motion-toggle]');assert ev("document.documentElement.dataset.motion==='off'")
+  assert ev("document.getAnimations().length===0")
+  nav('/honors');assert ev("document.documentElement.dataset.motion==='off'")
+  click('[data-motion-toggle]')
+  call('Emulation.setEmulatedMedia',{'features':[{'name':'prefers-reduced-motion','value':'reduce'}]})
+  wait("document.documentElement.dataset.motion==='off'")
+  assert ev("document.querySelector('[data-motion-toggle]').disabled")
+  click('[data-collection-key="standard-normal"] summary')
+  assert ev("document.getAnimations().length===0")
+  call('Emulation.setEmulatedMedia',{'features':[]})
+  for width in (1440,390):
+   call('Emulation.setDeviceMetricsOverride',{'width':width,'height':1150 if width==1440 else 1500,'deviceScaleFactor':1,'mobile':False})
+   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors')]:
+    nav(path);time.sleep(.5)
+    assert ev('document.documentElement.scrollWidth<=innerWidth'),(name,width)
+    shot('motion-'+name+('-desktop' if width==1440 else '-mobile'))
+  with connect(app.config['DATABASE']) as db:
+   assert db.execute('SELECT COUNT(*) FROM honors').fetchone()[0]==1
+   assert db.execute('SELECT COUNT(*) FROM featured_honors').fetchone()[0]==1
+  print('PASS: live browser publish, claim, validation, return/resubmit, accept, private one-time reveal, flip, featured persistence, real task wall, motion opt-out, reduced motion, 8 responsive views')
+  ws.close()
+ finally:
+  proc.terminate()
+  try:proc.wait(timeout=5)
+  except subprocess.TimeoutExpired:proc.kill();proc.wait()
+  server.shutdown();server.server_close()

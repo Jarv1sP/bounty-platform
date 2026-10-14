@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+instance/
+*.pyc
+
+dist/
+vendor/
+
+# Local data and credentials
+backups/
+my-data/
+another-demo/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.bak
+*.key
+.env
+.env.*
+
+# Agent metadata and design exploration artifacts
+.agents/
+.codex/
+.aws/
+TASK.md
+previews/
+static/previews/

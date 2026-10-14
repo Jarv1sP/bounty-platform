@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% from 'components/medal.html' import medal with context %}
+{% block content %}
+<section class="page-heading">
+  <div>
+    <h1>{{ {'all':'悬赏委托板','published':'我的发布','claimed':'我的认领'}.get(scope,'悬赏委托板') }}</h1>
+    <p class="muted">{{ tasks|length }} 个任务{% if category %} · {{ category }}{% endif %}{% if status %} · {{ statuses[status] }}{% endif %}</p>
+  </div>
+  <a class="button primary" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a>
+</section>
+<div class="workspace live-workspace">
+  <section class="task-main">
+    <form method="get" class="filters">
+      <input type="hidden" name="scope" value="{{ scope }}">
+      <input type="hidden" name="category" value="{{ category }}">
+      <label class="search"><span class="sr">搜索任务</span>{{ icon('search') }}<input name="q" placeholder="搜索标题或说明" value="{{ query }}"></label>
+      <label><span class="sr">任务状态</span><select name="status"><option value="">全部状态</option>{% for key,label in statuses.items() %}<option value="{{ key }}" {{ 'selected' if status==key }}>{{ label }}</option>{% endfor %}</select></label>
+      <button class="secondary">筛选</button>
+      {% if query or category or status %}<a class="reset" href="{{ url_for('index',scope=scope) }}">重置</a>{% endif %}
+    </form>
+    <div class="category-tabs" aria-label="分类筛选">
+      <a href="{{ url_for('index',scope=scope,status=status,q=query) }}" {% if not category %}aria-current="true"{% endif %}>全部</a>
+      {% for c in categories %}<a href="{{ url_for('index',scope=scope,status=status,q=query,category=c) }}" {% if category==c %}aria-current="true"{% endif %}>{{ c }}</a>{% endfor %}
+    </div>
+    {% if tasks %}
+    <div class="wall-toolbar" hidden>
+      <span data-wall-count aria-live="polite"></span>
+      <div><button type="button" data-wall-prev aria-label="查看左侧区域">← 左侧</button><span data-wall-position></span><button type="button" data-wall-next aria-label="查看右侧区域">右侧 →</button></div>
+      <span class="wall-hint">左右拖动墙面 · 点击任务查看</span>
+    </div>
+    <div class="wall-viewport" tabindex="0" role="region" aria-label="任务委托墙，左右方向键切换区域">
+      <div class="wall-canvas">
+        {% for group in tasks|batch(12) %}
+        <div class="wall-zone">
+          {% for task in group %}
+          <a class="task-card quest-paper variant-{{ task.id % 4 }}" href="{{ url_for('detail',task_id=task.id) }}" data-task="{{ task.id }}" style="--paper-angle:{{ ((task.id * 17) % 13 - 6) * 0.75 }}deg;--paper-x:{{ (task.id * 7) % 11 - 5 }}px;--paper-y:{{ (task.id * 11) % 13 - 6 }}px;--paper-short:{{ task.id % 3 * 7 }}px">
+            <span class="quest-pin" aria-hidden="true"></span>
+            <span class="quest-header"><span>任务委托</span><span>NO. {{ '%03d'|format(task.id) }}</span></span>
+            <h2>{{ task.title }}</h2>
+            <span class="quest-illustration" aria-hidden="true">{{ icon(task.category) }}</span>
+            <span class="quest-meta"><span>{{ task.category }}</span><span class="{{ 'urgent' if task.urgency=='urgent' }}">{{ importance_labels[task.importance] }} · {{ urgency_labels[task.urgency] }}</span></span>
+            <p class="quest-description">{{ task.description }}</p>
+            <span class="quest-reward">{{ medal(medal_key(task)) }}<span><small>任务勋章</small><strong>{{ medals[medal_key(task)].name }}</strong></span>
+              <span class="quest-stamp {{ task.status }}"><strong>{{ statuses[task.status] }}</strong><small>{{ '已截止' if task.status=='open' and task.deadline <= current_time else '任务悬赏' }}</small></span>
+            </span>
+            <span class="quest-foot"><span>{{ task.owner_name }}</span><span title="{{ task.deadline|date }}">{{ task.deadline[:10] }} 截止</span></span>
+          </a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    <noscript><p class="muted">JavaScript 未启用，所有任务按区域顺序展示，仍可查看和操作。</p></noscript>
+    {% else %}
+    <section class="empty"><h2>暂无任务</h2><p class="muted">调整筛选条件或发布任务。</p><a class="button primary" href="{{ url_for('new_task') }}">发布任务</a></section>
+    {% endif %}
+  </section>
+  <aside class="dashboard-side">
+    <section class="side-panel overview"><h2>全团队任务<span class="total-count">{{ counts.values()|sum }}</span></h2><div class="overview-grid">{% for key,label in statuses.items() %}<a class="overview-stat {{ key }}" href="{{ url_for('index',status=key) }}"><span class="stat-dot"></span><span>{{ label }}</span><strong>{{ counts.get(key,0) }}</strong></a>{% endfor %}</div></section>
+    <section class="side-panel collection-preview"><h2>我的勋章</h2><div class="mini-collection">{% for key in medal_preview %}<span class="{{ 'unearned' if key not in earned_keys }}">{{ medal(key,'large') }}</span>{% endfor %}</div><div class="collection-count"><strong>{{ earned_keys|length }}<small> / 6 种</small></strong><span>{{ honor_total }} 枚</span></div><progress value="{{ earned_keys|length }}" max="6" aria-label="勋章收集进度"></progress><a class="button secondary wide" href="{{ url_for('honors') }}">查看收藏 {{ icon('arrow') }}</a></section>
+  </aside>
+</div>
+{% endblock %}
