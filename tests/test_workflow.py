@@ -244,6 +244,74 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(response.text.count('data-task='), 24)
         self.assertEqual(response.text.count('class="wall-zone"'), 2)
 
+    def test_workbench_and_team_only_show_verified_deliveries(self):
+        owner, worker, other = self.clients
+        base = f'/tasks/{self.task_id}'
+        self.assertNotIn('入门文档', other.get('/team').text)
+        self.post(worker, base + '/claim', {})
+        self.assertIn('入门文档', worker.get('/desk').text)
+        self.assertNotIn('入门文档', other.get('/desk').text)
+        self.post(worker, base + '/submit', {'body': '第一版'})
+        self.assertIn('入门文档', owner.get('/desk').text)
+        self.assertNotIn('入门文档', other.get('/team').text)
+        self.post(owner, base + '/return', {'body': '补充复现差异'})
+        self.post(other, base + '/comment', {'body': '补充一个讨论'})
+        self.assertIn('补充复现差异', worker.get('/desk').text)
+        self.post(worker, base + '/submit', {'body': '最终交付 <script>alert(1)</script>'})
+        self.assertNotIn('needs-revision', worker.get('/desk').text)
+        self.post(owner, base + '/accept', {'body': '确认无效方案也是有用的成果。'})
+        page = other.get('/team').text
+        self.assertIn('入门文档', page)
+        self.assertIn('确认无效方案也是有用的成果。', page)
+        self.assertIn('最终交付', page)
+        self.assertIn('&lt;script&gt;', page)
+        self.assertNotIn('<script>alert', page)
+        self.assertNotIn('第一版', page)
+        self.assertIn('确认无效方案也是有用的成果。', worker.get('/honors').text)
+
+    def test_appreciation_ownership_state_and_persistence(self):
+        from bounty.community import toggle_appreciation
+        with self.assertRaises(InvalidAction):
+            toggle_appreciation(self.path, self.task_id, 3)
+        act(self.path, self.task_id, 2, 'claim')
+        act(self.path, self.task_id, 2, 'submit', '成果')
+        act(self.path, self.task_id, 1, 'accept')
+        with self.assertRaises(InvalidAction):
+            toggle_appreciation(self.path, self.task_id, 2)
+        self.assertEqual(toggle_appreciation(self.path, self.task_id, 1),
+                         {'appreciated': True, 'appreciation_count': 1})
+        self.assertEqual(toggle_appreciation(self.path, self.task_id, 3)['appreciation_count'], 2)
+        initialize(self.path)
+        with connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM appreciations').fetchone()[0], 2)
+        self.assertFalse(toggle_appreciation(self.path, self.task_id, 1)['appreciated'])
+        client = self.clients[0]
+        client.get('/')
+        with client.session_transaction() as session:
+            csrf = session['csrf']
+        response = client.post(f'/tasks/{self.task_id}/appreciate',
+            data={'csrf':csrf,'user_id':2}, headers={'Accept':'application/json'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {'appreciated':True,'appreciation_count':2})
+        with connect(self.path) as db:
+            self.assertFalse(db.execute('SELECT 1 FROM appreciations WHERE user_id=2').fetchone())
+        self.assertEqual(client.post(f'/tasks/{self.task_id}/appreciate').status_code,400)
+        self.assertEqual(self.app.test_client().get('/team').status_code,302)
+        self.assertEqual(self.app.test_client().get('/desk').status_code,302)
+
+    def test_team_pagination_and_invalid_page(self):
+        for i in range(13):
+            task_id = create_task(self.path, 1, {**self.data, 'title':f'成果 {i}'})
+            act(self.path, task_id, 2, 'claim')
+            act(self.path, task_id, 2, 'submit', '文档')
+            act(self.path, task_id, 1, 'accept')
+        client = self.clients[2]
+        self.assertEqual(client.get('/team').text.count('<article class="achievement-card'),12)
+        self.assertEqual(client.get('/team?page=2').text.count('<article class="achievement-card'),1)
+        self.assertEqual(client.get('/team?page=invalid').status_code,200)
+        self.assertEqual(client.get('/team?page=-10').text.count('<article class="achievement-card'),12)
+        self.assertEqual(client.get('/team?page=99999').text.count('<article class="achievement-card'),1)
+
     def test_auth_csrf_and_persistence(self):
         client = self.app.test_client()
         self.assertEqual(client.get('/tasks/new').status_code, 302)

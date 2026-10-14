@@ -6,6 +6,7 @@ from pathlib import Path
 from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
 from bounty.db import connect, initialize
+from bounty.community import recent_activity, workbench, team_results, appreciation_state, toggle_appreciation
 from bounty.honors import IMPORTANCE, URGENCY, MEDALS, medal_key
 from bounty.service import CATEGORIES, STATUSES, KINDS, InvalidAction, act, create_task, now, required
 
@@ -110,7 +111,7 @@ def create_app(config=None):
         if query:
             clauses.append('(t.title LIKE ? OR t.description LIKE ?)'); params.extend([f'%{query}%'] * 2)
         with connect(app.config['DATABASE']) as db:
-            tasks = db.execute('SELECT t.*,u.name owner_name FROM tasks t JOIN users u ON u.id=t.owner_id' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY t.id DESC', params).fetchall()
+            tasks = db.execute('SELECT t.*,u.name owner_name,a.name assignee_name FROM tasks t JOIN users u ON u.id=t.owner_id LEFT JOIN users a ON a.id=t.assignee_id' + (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY t.id DESC', params).fetchall()
             counts = {row['status']: row['n'] for row in db.execute('SELECT status,COUNT(*) n FROM tasks GROUP BY status')}
             my_honors = db.execute('SELECT medal_key FROM honors WHERE user_id=?', (g.user['id'],)).fetchall()
             earned_keys = {row['medal_key'] for row in my_honors}
@@ -118,7 +119,36 @@ def create_app(config=None):
                 'SELECT medal_key FROM featured_honors WHERE user_id=? ORDER BY slot', (g.user['id'],))]
         return render_template('index.html', tasks=tasks, scope=scope, category=category, status=status, query=query, counts=counts,
                                earned_keys=earned_keys, honor_total=len(my_honors),
-                               medal_preview=featured or list(dict.fromkeys([*sorted(earned_keys), *MEDALS]))[:3])
+                               medal_preview=featured or list(dict.fromkeys([*sorted(earned_keys), *MEDALS]))[:3],
+                               activity=recent_activity(app.config['DATABASE']))
+
+    @app.get('/desk')
+    @login_required
+    def desk():
+        return render_template('desk.html', **workbench(app.config['DATABASE'], g.user['id']))
+
+    @app.get('/team')
+    @login_required
+    def team():
+        page = request.args.get('page', 1, type=int)
+        return render_template('team.html', **team_results(app.config['DATABASE'], g.user['id'], page))
+
+    @app.post('/tasks/<int:task_id>/appreciate')
+    @login_required
+    def appreciate(task_id):
+        wants_json = request.accept_mimetypes.best == 'application/json'
+        destination = url_for('team') if request.form.get('return_to') == 'team' else url_for('detail', task_id=task_id)
+        try:
+            result = toggle_appreciation(app.config['DATABASE'], task_id, g.user['id'])
+        except InvalidAction as error:
+            if wants_json:
+                return jsonify(error=str(error)), 400
+            flash(str(error), 'error')
+        else:
+            if wants_json:
+                return jsonify(result)
+            flash('已标记有帮助。' if result['appreciated'] else '已取消标记。', 'success')
+        return redirect(destination)
 
     @app.route('/tasks/new', methods=['GET', 'POST'])
     @login_required
@@ -136,7 +166,7 @@ def create_app(config=None):
     @login_required
     def honors():
         with connect(app.config['DATABASE']) as db:
-            awards = db.execute('''SELECT h.*,t.title,u.name owner_name FROM honors h
+            awards = db.execute('''SELECT h.*,t.title,u.name owner_name, (SELECT body FROM events WHERE task_id=t.id AND kind='accept' ORDER BY id DESC LIMIT 1) acceptance FROM honors h
                 JOIN tasks t ON t.id=h.task_id JOIN users u ON u.id=t.owner_id
                 WHERE h.user_id=? ORDER BY h.awarded_at DESC,h.task_id DESC''', (g.user['id'],)).fetchall()
             featured = [row['medal_key'] for row in db.execute(
@@ -189,7 +219,8 @@ def create_app(config=None):
         feedback = session.pop('task_feedback', None)
         if feedback and feedback['task_id'] != task_id:
             feedback = None
-        return render_template('detail.html', task=task, events=events, award=award, feedback=feedback)
+        return render_template('detail.html', task=task, events=events, award=award, feedback=feedback,
+                               **appreciation_state(app.config['DATABASE'], task_id, g.user['id']))
 
     @app.post('/tasks/<int:task_id>/<action>')
     @login_required

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from .db import connect
 from .honors import IMPORTANCE, URGENCY, medal_key
 
-CATEGORIES = ('设计', '开发', '文档', '调研', '运营', '其他')
+CATEGORIES = ('论文阅读', '算法复现', '实验分析', '工程支持', '分享整理', '设计', '开发', '文档', '调研', '运营', '其他')
 STATUSES = {'open': '待认领', 'active': '进行中', 'review': '待验收', 'done': '已完成'}
 KINDS = {'claim': '认领任务', 'submit': '提交成果', 'accept': '验收通过', 'return': '退回修改', 'comment': '讨论', 'settle': '历史结算记录'}
 

@@ -95,11 +95,28 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   ev("document.querySelector('[data-action-form=submit] textarea').value='已补充安装截图'")
   click('[data-action-form=submit] button');wait("!!document.querySelector('[data-confirmed-action=submit]')")
   click('.account form button');wait("location.pathname==='/auth/login'")
-  login('发布者');nav(flow_path);click('[data-action-form=accept] button')
+  login('发布者');nav(flow_path)
+  ev("document.querySelector('[data-action-form=accept] textarea').value='补齐了复现差异，后面的实验可以接着做。'")
+  click('[data-action-form=accept] button')
   wait("!!document.querySelector('[data-confirmed-action=accept]')")
+  nav('/team')
+  assert ev("document.querySelector('.acceptance-note').textContent.includes('补齐了复现差异')")
+  click('[data-appreciate-form] button')
+  wait("document.querySelector('[data-appreciate-form] button').getAttribute('aria-pressed')==='true'")
+  assert ev("document.querySelector('[data-appreciate-count]').textContent==='1'")
+  assert ev("location.pathname==='/team'")
+  nav('/team');assert ev("document.querySelector('[data-appreciate-count]').textContent==='1'")
+  click('[data-appreciate-form] button')
+  wait("document.querySelector('[data-appreciate-form] button').getAttribute('aria-pressed')==='false'")
+  click('[data-appreciate-form] button')
+  wait("document.querySelector('[data-appreciate-form] button').getAttribute('aria-pressed')==='true'")
   nav('/honors');time.sleep(.2);assert not ev("document.querySelector('.award-dialog').open")
   click('.account form button');wait("location.pathname==='/auth/login'")
-  login('认领人');nav('/honors');wait("document.querySelector('.award-dialog').open")
+  login('认领人');nav('/desk')
+  assert ev("document.querySelector('.desk-overview').textContent.includes('已完成的贡献')")
+  nav('/team');assert ev("document.querySelector('.appreciation-self').textContent.includes('1')")
+  assert not ev("!!document.querySelector('[data-appreciate-form]')")
+  nav('/honors');wait("document.querySelector('.award-dialog').open")
   assert ev("document.querySelector('.award-items').textContent.includes('饭团')")
   time.sleep(.85);shot('medal-reveal')
   click('[data-close-awards]');wait("!document.querySelector('.award-dialog').open")
@@ -131,14 +148,15 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   call('Emulation.setEmulatedMedia',{'features':[]})
   for width in (1440,390):
    call('Emulation.setDeviceMetricsOverride',{'width':width,'height':1150 if width==1440 else 1500,'deviceScaleFactor':1,'mobile':False})
-   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors')]:
+   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors'),('desk','/desk'),('team','/team')]:
     nav(path);time.sleep(.5)
     assert ev('document.documentElement.scrollWidth<=innerWidth'),(name,width)
     shot('motion-'+name+('-desktop' if width==1440 else '-mobile'))
   with connect(app.config['DATABASE']) as db:
    assert db.execute('SELECT COUNT(*) FROM honors').fetchone()[0]==1
    assert db.execute('SELECT COUNT(*) FROM featured_honors').fetchone()[0]==1
-  print('PASS: live browser publish, claim, validation, return/resubmit, accept, private one-time reveal, flip, featured persistence, real task wall, motion opt-out, reduced motion, 8 responsive views')
+   assert db.execute('SELECT COUNT(*) FROM appreciations').fetchone()[0]==1
+  print('PASS: live browser publish, claim, validation, return/resubmit, accept, private one-time reveal, flip, featured persistence, real task wall, motion opt-out, reduced motion, personal desk, team delivery and appreciation, 12 responsive views')
   ws.close()
  finally:
   proc.terminate()

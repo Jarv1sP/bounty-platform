@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS honors (
  awarded_at TEXT NOT NULL, seen_at TEXT
 );
 CREATE INDEX IF NOT EXISTS honors_by_user ON honors(user_id);
+CREATE TABLE IF NOT EXISTS appreciations (
+ task_id INTEGER NOT NULL REFERENCES tasks(id),
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ created_at TEXT NOT NULL,
+ PRIMARY KEY(task_id,user_id)
+);
 CREATE TABLE IF NOT EXISTS featured_honors (
  user_id INTEGER NOT NULL REFERENCES users(id),
  slot INTEGER NOT NULL CHECK(slot BETWEEN 1 AND 3),

@@ -71,7 +71,7 @@ if (importance && urgency) {
 }
 
 // Submit immediately. Pending state is not a success animation and adds no artificial delay.
-document.querySelectorAll('form[method="post"]').forEach(form => {
+document.querySelectorAll('form[method="post"]:not([data-appreciate-form])').forEach(form => {
   form.addEventListener('submit', event => {
     if (form.dataset.pending) { event.preventDefault(); return; }
     form.dataset.pending = 'true';

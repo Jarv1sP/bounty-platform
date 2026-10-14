@@ -33,7 +33,7 @@ def build():
         shutil.copytree(ROOT / name, package / name,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     (package / 'static').mkdir()
-    for name in ('style.css', 'ui.js', 'board.css', 'board.js'):
+    for name in ('style.css', 'ui.js', 'board.css', 'board.js', 'community.css', 'community.js'):
         shutil.copy2(ROOT / 'static' / name, package / 'static' / name)
     (package / 'scripts').mkdir()
     shutil.copy2(ROOT / 'scripts' / 'check_motion.py', package / 'scripts' / 'check_motion.py')
@@ -77,7 +77,7 @@ def build():
     manifest = {str(path.relative_to(package)).replace('\\', '/'): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted(package.rglob('*')) if path.is_file()}
     (package / 'MANIFEST.sha256.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
-    archive = dist / 'bounty-platform-local-v1.0.0.zip'
+    archive = dist / 'bounty-platform-local-v1.1.0.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zip_file:
         for path in sorted(package.rglob('*')):
             if path.is_file():

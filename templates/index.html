@@ -1,13 +1,15 @@
 {% extends 'base.html' %}
 {% from 'components/medal.html' import medal with context %}
+{% from 'components/studio.html' import studio %}
 {% block content %}
-<section class="page-heading">
+<section class="page-heading task-page-heading">
   <div>
-    <h1>{{ {'all':'悬赏委托板','published':'我的发布','claimed':'我的认领'}.get(scope,'悬赏委托板') }}</h1>
+    <span class="page-eyebrow">团队工作区</span><h1>{{ {'all':'任务大厅','published':'我的发布','claimed':'我的认领'}.get(scope,'悬赏委托板') }}</h1>
     <p class="muted">{{ tasks|length }} 个任务{% if category %} · {{ category }}{% endif %}{% if status %} · {{ statuses[status] }}{% endif %}</p>
   </div>
   <a class="button primary" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a>
 </section>
+{% if scope=='all' %}<section class="lab-overview"><div class="lab-numbers"><a href="{{ url_for('index',status='open') }}"><strong>{{ counts.get('open',0) }}</strong><span>可认领</span></a><a href="{{ url_for('index',status='active') }}"><strong>{{ counts.get('active',0) }}</strong><span>进行中</span></a><a href="{{ url_for('team') }}"><strong>{{ counts.get('done',0) }}</strong><span>已完成</span></a><a class="desk-shortcut" href="{{ url_for('desk') }}">我的工作台 {{ icon('arrow') }}</a></div>{{ studio() }}</section>{% endif %}
 <div class="workspace live-workspace">
   <section class="task-main">
     <form method="get" class="filters">
@@ -43,7 +45,7 @@
             <span class="quest-reward">{{ medal(medal_key(task)) }}<span><small>任务勋章</small><strong>{{ medals[medal_key(task)].name }}</strong></span>
               <span class="quest-stamp {{ task.status }}"><strong>{{ statuses[task.status] }}</strong><small>{{ '已截止' if task.status=='open' and task.deadline <= current_time else '任务悬赏' }}</small></span>
             </span>
-            <span class="quest-foot"><span>{{ task.owner_name }}</span><span title="{{ task.deadline|date }}">{{ task.deadline[:10] }} 截止</span></span>
+            <span class="quest-foot"><span>{{ task.assignee_name ~ ' · ' ~ statuses[task.status] if task.assignee_name else task.owner_name ~ ' 发布' }}</span><span title="{{ task.deadline|date }}">{{ task.deadline[:10] }} 截止</span></span>
           </a>
           {% endfor %}
         </div>
@@ -55,9 +57,6 @@
     <section class="empty"><h2>暂无任务</h2><p class="muted">调整筛选条件或发布任务。</p><a class="button primary" href="{{ url_for('new_task') }}">发布任务</a></section>
     {% endif %}
   </section>
-  <aside class="dashboard-side">
-    <section class="side-panel overview"><h2>全团队任务<span class="total-count">{{ counts.values()|sum }}</span></h2><div class="overview-grid">{% for key,label in statuses.items() %}<a class="overview-stat {{ key }}" href="{{ url_for('index',status=key) }}"><span class="stat-dot"></span><span>{{ label }}</span><strong>{{ counts.get(key,0) }}</strong></a>{% endfor %}</div></section>
-    <section class="side-panel collection-preview"><h2>我的勋章</h2><div class="mini-collection">{% for key in medal_preview %}<span class="{{ 'unearned' if key not in earned_keys }}">{{ medal(key,'large') }}</span>{% endfor %}</div><div class="collection-count"><strong>{{ earned_keys|length }}<small> / 6 种</small></strong><span>{{ honor_total }} 枚</span></div><progress value="{{ earned_keys|length }}" max="6" aria-label="勋章收集进度"></progress><a class="button secondary wide" href="{{ url_for('honors') }}">查看收藏 {{ icon('arrow') }}</a></section>
-  </aside>
+  <aside class="dashboard-side community-side"><section class="side-panel recent-panel"><div class="sectiontop"><h2>近期动态</h2><a href="{{ url_for('team') }}">团队成果 ↗</a></div>{% for event in activity %}<a class="activity-row" href="{{ url_for('detail',task_id=event.task_id) }}"><span class="activity-avatar">{{ event.name[:1] }}</span><span><strong>{{ event.name }}</strong> {{ {'claim':'认领了','submit':'提交了','accept':'验收了'}[event.kind] }}<b>{{ event.title }}</b></span><small>{{ event.created_at[5:16]|replace('T',' ') }} UTC</small></a>{% else %}<p class="muted">认领、提交和验收后，团队动态会记录在这里。</p>{% endfor %}</section><section class="side-panel collection-preview"><div class="sectiontop"><h2>我的勋章</h2><a href="{{ url_for('honors') }}">查看收藏 ↗</a></div><div class="mini-collection">{% for key in medal_preview %}<span class="{{ 'unearned' if key not in earned_keys }}">{{ medal(key,'large') }}</span>{% endfor %}</div><div class="collection-count"><strong>{{ earned_keys|length }}<small> / 6 种</small></strong><span>{{ honor_total }} 枚</span></div><progress value="{{ earned_keys|length }}" max="6" aria-label="勋章收集进度"></progress></section></aside>
 </div>
 {% endblock %}
