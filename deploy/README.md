@@ -4,6 +4,8 @@
 
 ## 本次实例
 
+**管理员交接：此实例已经安装，不必重装。** 先在阿里云 DNS 为 `j4rv1s.xyz` 新增 A 记录 `bounty → 47.99.144.195`，确认解析生效，再检查 HTTPS 证书与登录。Caddy 的 bounty 站点块已热加载。初始登录资料在下述 root 私有文件中，不要复制进工单或 Git。
+
 - 地址：`https://bounty.j4rv1s.xyz`，DNS A 记录须指向 `47.99.144.195`。
 - 主机：现有 VPS；管理路径 `/opt/bounty-platform`。
 - Compose 项目及容器：`bounty-platform`。不发布宿主机端口。
@@ -25,6 +27,35 @@ python -m pip download --only-binary=:all: --platform manylinux2014_x86_64 \
   -r requirements-cloud.txt -d wheels
 docker build --network=none -t bounty-platform:VERSION .
 ```
+
+## 在另一台机器全新安装
+
+现有实例不要执行本节。新机器先安装 Docker Compose，并准备独立域名、DNS 和 Caddy。完成上面的镜像构建后：
+
+```bash
+sudo install -d -m 700 /opt/bounty-platform
+sudo install -d -m 700 -o 10001 -g 10001 /opt/bounty-platform/data
+sudo cp deploy/compose.yml /opt/bounty-platform/compose.yml
+```
+
+在该目录新建权限为 0600 的 `.env`：
+
+```dotenv
+BOUNTY_IMAGE=bounty-platform:VERSION
+BOUNTY_DOMAIN=your-domain.example
+BOUNTY_DATA_DIR=/data
+BOUNTY_INVITE_CODE=REPLACE_WITH_RANDOM_VALUE_AT_LEAST_16_CHARACTERS
+```
+
+用 `python -c 'import secrets; print(secrets.token_urlsafe(24))'` 生成邀请码，在可信终端保存；不要使用上述占位值。将 Compose 中外部网络 `amax-console-net` 改为你自己的 Caddy 网络，并确保 Caddy 和应用都在该网络内。然后创建管理员并启动：
+
+```bash
+cd /opt/bounty-platform
+docker compose run --rm web python manage.py create-user 管理员用户名 --admin
+docker compose up -d --wait
+```
+
+添加对应域名的 Caddy 站点，反代 `bounty-platform:8080`，校验后热加载。应用要求 HTTPS；不要为了测试关闭 Secure cookie 或直接公开 8080。需要每日备份时将本目录的 `backup.py` 和两个 systemd 文件安装到文中路径并启用定时器。服务启动后检查 `/healthz`、注册邀请码、登录、发布/认领/验收及重启后的数据持久性。
 
 正式入口 `wsgi:create_cloud_app()` 要求设置 `BOUNTY_DOMAIN` 和至少 16 字符的随机 `BOUNTY_INVITE_CODE`。HTTPS cookie 使用独立名称；只信任一层 Caddy 转发头。登录和注册按来源 IP 每分钟最多 30 次、滚动窗口最多约 300 次/小时，计数存自己的 SQLite。不要把 8080 直接映射到公网。
 

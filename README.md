@@ -1,7 +1,19 @@
-# 搭把手 · 本地悬赏任务平台
+# 搭把手 · 团队悬赏任务平台
 
 独立的本地完整应用：HTML/CSS/JavaScript 界面 + Flask 后端 + SQLite 数据库。
 发布任务、认领、提交、退回、验收、讨论和勋章都是真实操作，会保存到数据库。
+
+## 管理员部署入口
+
+**当前默认分支 `deploy/bounty-cloud` 包含最新版功能和已验证的云端部署配置。**
+请阅读 [云端安装与维护](deploy/README.md)。历史 Release v1.0.0 / v1.1.0 是较早的本地演示版，不包含最新功能。
+
+```bash
+git clone --branch deploy/bounty-cloud https://github.com/halashaor/bounty-platform.git
+cd bounty-platform
+```
+
+已有 VPS 实例在 `/opt/bounty-platform`，独立容器已启动；交接时应先检查现有服务和数据，避免重复安装或覆盖。公网入口是否可用还取决于 DNS 与证书，详见部署文档。账号、邀请码和数据库不随源码发布。
 
 ## 获取与源码运行
 
