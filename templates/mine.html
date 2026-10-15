@@ -8,7 +8,7 @@
 {% macro row(task) -%}
 {%- set me = g.user.id -%}
 {%- set who = '你' if task.last_name == g.user.name else task.last_name -%}
-{%- if task.status == 'active' and task.assignee_id == me -%}{% set ball = '被退回，等你改' if task.last_kind == 'return' else '你在做' %}
+{%- if task.status == 'active' and task.assignee_id == me -%}{% set ball = '被退回，等你改' if task.state_kind == 'return' else '你在做' %}
 {%- elif task.status == 'review' and task.owner_id == me -%}{% set ball = '等你验收' %}
 {%- elif task.status == 'review' -%}{% set ball = '等 ' ~ task.owner_name ~ ' 验收' %}
 {%- elif task.status == 'active' -%}{% set ball = task.assignee_name ~ ' 在做' %}
@@ -16,7 +16,7 @@
 {%- else -%}{% set ball = ('你完成 · 得到「' ~ medals[medal_key(task)].name ~ '」') if task.assignee_id == me else (task.assignee_name ~ ' 完成') %}{%- endif -%}
 <a class="mrow" href="{{ url_for('detail', task_id=task.id) }}">{{ medal(medal_key(task)) }}
   <div class="mrow-main"><b>{{ task.title }}</b>
-    <p>{% if task.last_kind %}<em class="ev-tag {{ task.last_kind }}">{{ kinds.get(task.last_kind, '动态') }}</em>{{ who }}：{{ task.last_body }}{% else %}{{ task.created_at|md }} 发布{% endif %}</p></div>
+    <p>{% if task.status == 'active' and task.state_kind == 'return' %}<em class="ev-tag return">退回修改</em>{{ task.return_reason }}{% elif task.last_kind %}<em class="ev-tag {{ task.last_kind }}">{{ kinds.get(task.last_kind, '动态') }}</em>{{ who }}：{{ task.last_body }}{% else %}{{ task.created_at|md }} 发布{% endif %}</p></div>
   <span class="st {{ task.status }}"><i></i>{{ ball }}</span>{{ due(task) }}</a>
 {%- endmacro %}
 <div class="wrap mine">

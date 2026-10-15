@@ -40,7 +40,7 @@
   <div class="pinboard">
     {# 鼓掌的回声：上次来过之后，又有人为你完成的任务鼓掌。看过一次就收起来。 #}
     {% for note in notes %}{% set names = note.names.split('、') %}
-    <a class="note-card" href="{{ url_for('detail', task_id=note.id) }}" style="--r:{{ [-2, 1.5, -1][loop.index0] }}deg;--i:{{ loop.index0 }}">
+    <a class="note-card" href="{{ url_for('detail', task_id=note.id) }}" style="--r:{{ [-2, 1.5, -1][loop.index0 % 3] }}deg;--i:{{ loop.index0 }}">
       <i class="tape" aria-hidden="true"></i>{{ icon('clap') }}
       <span><b>{{ names[:3]|join('、') }}{% if names|length > 3 %} 等 {{ names|length }} 人{% endif %}为你鼓掌</b>
       <small>「{{ note.title }}」一共收到 {{ note.total }} 次鼓掌</small></span>
