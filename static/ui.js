@@ -1,5 +1,5 @@
 /* 結 YUI · 全站交互与手感
-   参考卡普空、星露谷和樱井政博讲的手感原则：
+   手感原则：
    - 操作后 100ms 内一定有反馈；状态先保存，动画只是盖在上面的一层，点击或按 Esc 立即跳到结果。
    - 分级：悬停最轻；认领、提交、退回 ≤400ms 且不震；验收、勋章 ≤1s；集齐一套 ≤2s 且只播一次。
    - 打击停顿只用在大节点（60–120ms），震动只震目标元素、横向 ≤3px，绝不震整页。
@@ -275,7 +275,7 @@
     }
   }));
 
-  /* ---------- 领取勋章：卡普空式结算 + 星露谷式按稀有度放大 ---------- */
+  /* ---------- 领取勋章：按稀有度分档庆祝 ---------- */
   const stage = document.querySelector('[data-honor-reveal]');
   const dialog = document.querySelector('.award-dialog');
   if (stage && dialog) reveal(stage.dataset.honorReveal);

@@ -1,6 +1,6 @@
 {% from 'components/medal.html' import medal %}
 {% from 'components/blocks.html' import build_svg %}
-{# 「結」：一红一蓝两个环扣在一起，像链条的两节——今天我帮你，明天你帮我 #}
+{# Logo：一红一蓝两个环 #}
 {% macro logo() -%}
 <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="15" cy="20" r="8" fill="none" stroke="#E54465" stroke-width="4"/><circle cx="25" cy="20" r="8" fill="none" stroke="#2866B1" stroke-width="4"/><path d="M17.07 12.27A8 8 0 0 1 21.93 16" fill="none" stroke="#E54465" stroke-width="4"/></svg>
 {%- endmacro %}
@@ -20,7 +20,7 @@
 {%- else -%}<span class="due{{ ' soon' if info[1] }}">{{ info[0] }}</span>{%- endif -%}
 {%- endmacro %}
 
-{# 称号印章：像日本的判子，四个字两列、三个字一列，从右往左读 #}
+{# 称号印章：四个字两列、三个字一列，从右往左读 #}
 {% macro hanko(title, cls='') -%}
 <span class="hanko n{{ title.name|length }}{{ ' ' ~ cls if cls }}" style="--c:{{ title.color }}"><i>{{ title.name }}</i></span>
 {%- endmacro %}

@@ -130,7 +130,7 @@
         void art.getBoundingClientRect();
         art.classList.add('anim');
         feel.play(tile, [{transform: 'scale(.95)'}, {transform: 'scale(1.04)', offset: .45}, {transform: 'none'}], {duration: 380, easing: feel.C});
-        // 连着选，音一个比一个高（星露谷捡东西的那种）
+        // 连着选，音一个比一个高
         feel.sfx('tick', {pitch: 1 + chosen().length * 0.12});
       } else {
         tile.style.setProperty('--x', '50%');

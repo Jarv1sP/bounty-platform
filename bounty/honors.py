@@ -2,7 +2,7 @@
 IMPORTANCE = {'light': '轻量', 'standard': '常规', 'major': '重要'}
 URGENCY = {'normal': '不急', 'urgent': '加急'}
 EFFORT = {'light': '半天内', 'standard': '一两天', 'major': '一周左右'}
-# 点动成线，线动成面：任务越重，勋章填得越满；不急用冷色，加急用暖色并挂「急」角标。
+# 任务越重，勋章填得越满；不急用冷色，加急用暖色并挂「急」角标。
 MEDALS = {
     'light-normal': {'name': '点', 'hue': '#00A27A'},
     'standard-normal': {'name': '线', 'hue': '#00AEE0'},
