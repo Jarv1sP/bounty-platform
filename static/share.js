@@ -37,21 +37,22 @@
       `<circle cx="${64 + ((d.medals || []).length + i) * 168 + 70}" cy="540" r="66" fill="none" stroke="#fff" stroke-width="5" stroke-dasharray="14 12"/>`).join('');
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
       <style>text{font-family:${FONT}}.num{font-family:${NUM}}</style>
-      <defs><clipPath id="c"><rect width="${W}" height="${H}" rx="56"/></clipPath></defs>
+      <defs><clipPath id="c"><rect width="${W}" height="${H}" rx="56"/></clipPath><clipPath id="b"><rect x="780" y="190" width="340" height="340" rx="22"/></clipPath></defs>
       <g clip-path="url(#c)">
         <rect width="${W}" height="${H}" fill="${d.hue}"/>
+        ${d.build ? `<rect x="766" y="176" width="368" height="368" rx="32" fill="#fff"/><g clip-path="url(#b)">${d.build.replace('<svg ', '<svg x="780" y="190" width="340" height="340" ')}</g>` : `
         <g transform="translate(80 0) scale(4)">
           <path d="M280 180H150A130 130 0 0 1 280 50Z" fill="${accent}"/>
           <circle cx="168" cy="34" r="3.4" fill="#fff"/><circle cx="180" cy="34" r="3.4" fill="#fff"/><circle cx="191" cy="34" r="3.4" fill="#fff"/>
           <path d="M198 34H246" stroke="#fff" stroke-width="6.8" stroke-linecap="round"/><circle cx="152" cy="34" r="7" fill="#1B1D2A"/>
-        </g>
+        </g>`}
         ${d.complete ? `<rect x="14" y="14" width="${W - 28}" height="${H - 28}" rx="44" fill="none" stroke="#F2B700" stroke-width="12"/><rect x="34" y="34" width="${W - 68}" height="${H - 68}" rx="30" fill="none" stroke="#fff" stroke-width="3"/>` : ''}
       </g>
       <rect x="64" y="64" width="150" height="56" rx="28" fill="#fff"/><text class="num" x="139" y="102" font-size="30" font-weight="800" text-anchor="middle" fill="#1B1D2A">Lv.${d.level}</text>
       <rect x="226" y="64" width="${40 + [...d.level_name].length * 30}" height="56" rx="28" fill="#1B1D2A"/><text x="${246 + [...d.level_name].length * 15}" y="101" font-size="28" font-weight="800" text-anchor="middle" fill="#fff">${esc(d.level_name)}</text>
       ${d.complete ? `<rect x="${246 + [...d.level_name].length * 30 + 16}" y="64" width="150" height="56" rx="28" fill="#F2B700"/><text x="${246 + [...d.level_name].length * 30 + 91}" y="101" font-size="28" font-weight="800" text-anchor="middle" fill="#1B1D2A">全收集</text>` : ''}
       <text x="64" y="330" font-size="128" font-weight="800" fill="#fff">${esc(d.name)}</text>
-      ${d.title ? sealSvg(d.title.name, d.title.color, 1000, 60, 150) : ''}
+      ${d.title ? sealSvg(d.title.name, d.title.color, d.build ? 620 : 1000, 60, d.build ? 120 : 150) : ''}
       ${medals}${empty}
       <text x="64" y="${H - 40}" font-size="24" font-weight="700" fill="#fff" fill-opacity=".85">搭把手 · ${d.total} 枚勋章 · ${d.xp} 经验 · ${today()}</text>
     </svg>`;

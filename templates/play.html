@@ -1,57 +1,111 @@
 {% extends 'base.html' %}
 {% from 'components/icon.html' import icon %}
 {% from 'components/ui.html' import hanko %}
+{% from 'components/blocks.html' import build_svg, part_icon %}
 {% block title %}游戏角 · 搭把手{% endblock %}
 {% block body_class %}page-play{% endblock %}
 {% block content %}
 {% set preview = levels[6] %}
+{% set unsolved = lines.open|reject('in', lines.solved)|list %}
+{% set parts_open = board|selectattr('kind', 'equalto', 'part')|selectattr('open')|list %}
+{% set parts_all = board|selectattr('kind', 'equalto', 'part')|list %}
+{% set next_up = board|rejectattr('open')|list %}
 <div class="wrap play">
   <section class="play-hero">
     <div class="play-hero-text">
       <span class="case-label">游戏角</span>
-      <h1>做完任务，来玩一局</h1>
-      <p>游戏券只能靠验收通过的任务拿到：轻量 {{ ticket_rule.light }} 张、常规 {{ ticket_rule.standard }} 张、重要 {{ ticket_rule.major }} 张，冷门任务再多 1 张。
-        游戏不给经验也不给勋章，只能解锁两个称号。一局一分钟以内，玩完就回去干活吧。</p>
+      <h1>做完任务，来搭一搭</h1>
+      <p>这里的东西全都随便玩，不花任何东西。勋章就是钥匙：拿到哪种勋章，积木就多一种颜色；点、线、面勋章越多，积木零件越多；有几样小游戏的玩法也要勋章来开。
+        解锁了就一直是你的。游戏不给经验也不给勋章。</p>
     </div>
-    <div class="wallet" aria-label="还有 {{ tickets }} 张游戏券">
-      <div class="wallet-stack" style="--n:{{ [tickets, 4]|min }}" aria-hidden="true">{% for _ in range([tickets, 4]|min) %}<i style="--k:{{ loop.index0 }}">{{ icon('ticket') }}</i>{% endfor %}</div>
-      <div class="wallet-count"><b class="num">{{ tickets }}</b><span>张游戏券</span></div>
-      {% if earned %}<ol class="wallet-log">{% for row in earned %}<li><em class="num">+{{ row.delta }}</em><span>{{ row.title }}{% if row.cold %}<i>冷门</i>{% endif %}</span><time class="num">{{ row.created_at|md }}</time></li>{% endfor %}</ol>
-      {% else %}<p class="wallet-empty">新账号先送 2 张试玩。之后每验收通过一个任务就会多几张。</p>{% endif %}
+    <div class="wallet" aria-label="勋章解锁了 {{ parts_open|length }} 种零件">
+      <div class="wallet-swatches" aria-label="积木颜色">
+        {% for item in board if item.kind == 'color' %}<i class="{{ 'open' if item.open else '' }}{{ ' new' if item.new }}" style="--c:{{ colors[item.id[6:]] }}" title="{{ item.name }}{{ '：' ~ item.need if not item.open }}"></i>{% endfor %}
+      </div>
+      <div class="wallet-count"><b class="num">{{ parts_open|length }}</b><span>/ {{ parts_all|length }} 种零件</span></div>
+      {% if next_up %}
+      <ol class="wallet-next">{% for item in next_up[:3] %}<li>{{ icon('lock') }}<span><b>{{ item.name }}</b><small>{{ item.need }}</small></span></li>{% endfor %}</ol>
+      {% else %}<p class="wallet-empty">全部解锁了！</p>{% endif %}
     </div>
   </section>
 
-  {% if not tickets %}
-  <a class="no-tickets panel" href="{{ url_for('index') }}">{{ icon('ticket') }}<span><b>券用完了</b>去「发现」接一个任务，验收通过就有新的券。</span>{{ icon('arrow') }}</a>
+  <section class="blocks-card panel" aria-labelledby="blocks-title">
+    <a class="blocks-preview" href="{{ url_for('play_blocks', id=mine[0].id) if mine else url_for('play_blocks') }}" aria-label="打开积木">
+      {% if mine %}{{ build_svg(mine[0], label='最近的作品「' ~ mine[0].name ~ '」') }}
+      {% else %}{{ build_svg(dict(bg='paper', parts=[['quarter', 'ink', 0, 12, 0], ['dot-m', 'ink', 9, 3, 0], ['bar-3', 'ink', 5, 9, 0], ['sq-2', 'ink', 12, 12, 0], ['dot-s', 'ink', 3, 3, 0], ['bar-3', 'white', 6, 13, 1]])) }}{% endif %}
+    </a>
+    <div class="blocks-text">
+      <h2 id="blocks-title">积木<small>用点、线、面拼你想拼的</small></h2>
+      <p>16×16 的板子，零件就是勋章上的那些点、线、面。拼好的作品可以挂到名牌上，队友在名牌墙和下面的积木墙都能看到。</p>
+      <div class="part-strip" aria-label="已经能用的零件">{% for item in parts_open[:12] %}{{ part_icon(item.id[5:]) }}{% endfor %}{% if parts_open|length < parts_all|length %}<span class="more">还有 {{ parts_all|length - parts_open|length }} 种靠勋章解锁</span>{% endif %}</div>
+      <div class="blocks-actions">
+        <a class="btn btn-big" href="{{ url_for('play_blocks', id=mine[0].id) if mine else url_for('play_blocks') }}">{{ icon('play') }}{{ '接着搭' if mine else '开始搭' }}</a>
+        {% if mine %}<a class="btn btn-line btn-big" href="{{ url_for('play_blocks') }}">{{ icon('plus') }}新作品</a><span class="muted">存了 {{ builds }} 件</span>{% endif %}
+      </div>
+    </div>
+  </section>
+
+  {% if wall %}
+  <section class="block-wall panel" aria-labelledby="wall-title">
+    <h2 class="sec" id="wall-title">积木墙<span>{{ wall|length }}</span><small>大家挂在名牌上的作品</small></h2>
+    <div class="wall-row">{% for item in wall %}<figure>{{ build_svg(item, label=item.owner ~ ' 搭的「' ~ item.name ~ '」') }}<figcaption><b>{{ item.name }}</b>{{ item.owner }}</figcaption></figure>{% endfor %}</div>
+  </section>
   {% endif %}
 
   <section class="game-cards" aria-label="小游戏">
-    <a class="game-card game-lines" href="{{ url_for('play_lines') }}">
-      <div class="game-art" aria-hidden="true">
-        <svg viewBox="-8 -8 116 116">
+    <div class="game-card game-lines">
+      <a class="game-art" href="{{ url_for('play_lines') }}" aria-label="一笔画">
+        <svg viewBox="-8 -8 116 116" aria-hidden="true">
           {% for a, b in preview[2] %}<line class="{{ 'lit' if loop.index0 < 5 }}" style="--i:{{ loop.index0 }}" x1="{{ preview[1][a][0] }}" y1="{{ preview[1][a][1] }}" x2="{{ preview[1][b][0] }}" y2="{{ preview[1][b][1] }}"/>{% endfor %}
           {% for x, y in preview[1] %}<circle cx="{{ x }}" cy="{{ y }}" r="5.5"/>{% endfor %}
         </svg>
-      </div>
+      </a>
       <div class="game-text">
         <h2>一笔画</h2>
         <p>一笔走完所有的线，不能走重复的路。图论里叫欧拉路径，卡住了就想想每个点连着几条线。</p>
-        <div class="game-stat"><span><b class="num">{{ lines.solved|length }}</b> / {{ lines.total }} 关</span><span>每张券解锁一关，画过的关随时重玩</span></div>
+        <div class="game-stat"><span>画完 <b class="num">{{ lines.solved|length }}</b> / {{ lines.total }} 关</span><span>画完一关开下一关</span></div>
       </div>
-      <span class="btn">{{ icon('play') }}{{ '继续' if lines.solved else '开始' }}</span>
-    </a>
-    <a class="game-card game-stamp" href="{{ url_for('play_stamp') }}">
-      <div class="game-art" aria-hidden="true">
-        <div class="mini-belt">{% for kind in ['', 'urgent', 'void', ''] %}<i class="mini-slip {{ kind }}" style="--i:{{ loop.index0 }}"></i>{% endfor %}</div>
-        <span class="mini-stamp"><i>通过</i></span>
+      <div class="game-modes">
+        <a class="mode" href="{{ url_for('play_lines') }}">{{ icon('play') }}<span><b>{{ '接着画' if lines.solved else '从第 1 关开始' }}</b><small>{% if unsolved %}第 {{ unsolved[0] }} 关「{{ levels[unsolved[0] - 1][0] }}」{% else %}全都画完了，随时重玩{% endif %}</small></span></a>
+        <a class="mode{{ ' done' if daily_done }}" href="{{ url_for('play_daily') }}">{{ icon('sun') }}<span><b>每日一笔</b><small>{% if daily_done %}今天画过了 · {% endif %}全队同一题，今天 {{ daily_count }} 人画出来了</small></span></a>
+        {% set random_item = board|selectattr('id', 'equalto', 'random')|first %}
+        {% if random_item.open %}<a class="mode" href="{{ url_for('play_random') }}">{{ icon('dice') }}<span><b>随机一笔</b><small>无限出题</small></span></a>
+        {% else %}<span class="mode locked">{{ icon('lock') }}<span><b>随机一笔</b><small>{{ random_item.need }}后开放</small></span></span>{% endif %}
       </div>
+    </div>
+    <div class="game-card game-stamp">
+      <a class="game-art" href="{{ url_for('play_stamp') }}" aria-label="盖章挑战">
+        <div class="mini-belt" aria-hidden="true">{% for kind in ['', 'urgent', 'void', ''] %}<i class="mini-slip {{ kind }}" style="--i:{{ loop.index0 }}"></i>{% endfor %}</div>
+        <span class="mini-stamp" aria-hidden="true"><i>通过</i></span>
+      </a>
       <div class="game-text">
         <h2>盖章挑战</h2>
-        <p>30 秒，单子从眼前滑过，看准了再盖章。连击越长分越高，退回的单子别盖。</p>
-        <div class="game-stat"><span>最好 <b class="num">{{ best.score }}</b> 分</span><span>最高 <b class="num">{{ best.combo }}</b> 连击</span><span>每局 1 张券</span></div>
+        <p>单子从眼前滑过，看准了再盖章。连击越长分越高，退回的单子别盖。想玩几局玩几局。</p>
       </div>
-      <span class="btn">{{ icon('play') }}开始</span>
-    </a>
+      <div class="game-modes">
+        {% for key, mode in modes.items() %}{% set item = board|selectattr('id', 'equalto', mode.unlock)|first if mode.unlock else none %}
+        {% if not item or item.open %}<a class="mode" href="{{ url_for('play_stamp', mode=key) }}">{{ icon('play') }}<span><b>{{ mode.name }}</b><small>{{ mode.about }}{% if best[key].runs %} · 最好 {{ best[key].score }} 分{% endif %}</small></span></a>
+        {% else %}<span class="mode locked">{{ icon('lock') }}<span><b>{{ mode.name }}</b><small>{{ item.need }}后开放 · {{ mode.about }}</small></span></span>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  {# 勋章能解锁的全部东西 #}
+  <section class="road panel" aria-labelledby="road-title">
+    <h2 class="sec" id="road-title">勋章能解锁什么<small>做任务拿勋章，这些会一样样亮起来</small></h2>
+    {% for kind, label in [('color', '积木颜色'), ('part', '积木零件'), ('mode', '游戏玩法'), ('style', '盖章样式'), ('random', '一笔画')] %}
+    <h3>{{ label }}</h3>
+    <ul class="road-list">
+      {% for item in board if item.kind == kind %}
+      <li class="road-item{{ ' open' if item.open }}{{ ' new' if item.new }}">
+        {% if kind == 'color' %}<i class="dot" style="--c:{{ colors[item.id[6:]] }}"></i>{% elif kind == 'part' %}{{ part_icon(item.id[5:]) }}{% endif %}
+        <span><b>{{ item.name }}</b><small>{{ '已解锁' if item.open and item.need == '一开始就有' else item.need }}</small></span>
+        {% if item.new %}<i class="new-dot">新</i>{% elif not item.open %}{{ icon('lock') }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
   </section>
 
   <section class="game-titles panel" aria-labelledby="game-titles-title">

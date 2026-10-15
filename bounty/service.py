@@ -2,7 +2,7 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from .db import TICKETS, connect
+from .db import connect
 from .honors import COLD_DAYS, IMPORTANCE, URGENCY, cold_bonus, medal_key
 
 # Suggested starter tags only: teams add their own tags and projects freely, nothing is limited to this list.
@@ -133,8 +133,6 @@ def act(path, task_id, user_id, action, body=''):
                 key = medal_key(task)
                 db.execute('INSERT INTO honors (task_id,user_id,medal_key,awarded_at,bonus) VALUES (?,?,?,?,?)',
                            (task_id, task['assignee_id'], key, now(), cold_bonus(key) if task['cold'] else 0))
-                db.execute("INSERT INTO tickets (user_id,delta,reason,task_id,created_at) VALUES (?,?,'task',?,?)",
-                           (task['assignee_id'], TICKETS[task['importance']] + task['cold'], task_id, now()))
         elif action == 'comment':
             if not body:
                 raise InvalidAction('讨论内容不能为空。')

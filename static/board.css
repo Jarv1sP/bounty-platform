@@ -721,18 +721,12 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
 .share-actions{display:flex;gap:10px}
 
 /* ================= 游戏角 ================= */
-.play{display:grid;gap:18px;padding-top:26px;padding-bottom:80px}
+.play{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;padding-top:26px;padding-bottom:80px}
 .play-hero{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:stretch;padding:30px 32px;border-radius:28px;background:#1B1D2A radial-gradient(rgba(255,255,255,.07) 1.2px,transparent 1.7px) 0 0/22px 22px;color:#fff}
 .play-hero h1{margin-top:14px;font-size:38px;line-height:1.25}
 .play-hero p{margin-top:10px;max-width:36em;color:rgba(255,255,255,.75);font-size:14px}
 .wallet{display:grid;align-content:start;gap:12px;padding:20px;border-radius:20px;background:rgba(255,255,255,.07)}
-.wallet-stack{position:relative;height:64px}
-.wallet-stack i{position:absolute;left:calc(var(--k) * 26px);top:calc(var(--k) * -3px);width:92px;height:56px;display:grid;place-items:center;border-radius:10px;background:var(--yellow);color:var(--ink);box-shadow:0 6px 14px rgba(0,0,0,.3);transform:rotate(calc(-8deg + var(--k) * 5deg));animation:ticket-in 520ms var(--pop) calc(var(--k) * 90ms + 200ms) both}
-.wallet-stack i svg{width:30px;height:30px}
-@keyframes ticket-in{from{opacity:0;transform:translateY(-30px) rotate(-30deg)}}
-.wallet-count{display:flex;align-items:baseline;gap:8px}
-.wallet-count b{font:700 56px/.9 var(--num)}
-.wallet-count span{font-weight:800;color:rgba(255,255,255,.75)}
+.wallet-count{display:flex;align-items:center;gap:10px}
 .wallet-log{display:grid;gap:4px;font-size:12.5px;color:rgba(255,255,255,.75)}
 .wallet-log li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center}
 .wallet-log em{font-style:normal;font-weight:800;color:var(--yellow)}
@@ -740,12 +734,7 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
 .wallet-log span i{font-style:normal;margin-left:6px;padding:0 6px;border-radius:5px;background:#9C6B3F;color:#fff;font-size:11px}
 .wallet-log time{color:rgba(255,255,255,.5)}
 .wallet-empty{font-size:12.5px;color:rgba(255,255,255,.7)}
-.no-tickets{display:flex;align-items:center;gap:14px;padding:16px 20px;border:2px dashed var(--line-2)}
-.no-tickets .icon{width:26px;height:26px}
-.no-tickets span{flex:1;color:var(--sub)}
-.no-tickets b{display:block;color:var(--ink)}
 .game-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
-.game-card{position:relative;display:grid;grid-template-rows:220px auto auto;border-radius:24px;background:var(--paper);overflow:hidden;transition:transform 300ms var(--pop),box-shadow 300ms var(--arrive)}
 .game-card:hover{transform:translateY(-6px) rotate(-.4deg);box-shadow:0 14px 0 -6px rgba(27,29,42,.12)}
 .game-card:active{transform:scale(.99)}
 .game-art{position:relative;display:grid;place-items:center;overflow:hidden}
@@ -762,7 +751,6 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
 .game-text p{font-size:13.5px;color:var(--sub)}
 .game-stat{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--sub);font-weight:700}
 .game-stat b{color:var(--ink);font-size:16px}
-.game-card>.btn{justify-self:start;margin:12px 22px 22px}
 .mini-belt{position:absolute;left:0;right:0;top:50%;height:70px;transform:translateY(-50%);display:flex;gap:22px;padding-left:18px;align-items:center;background:rgba(0,0,0,.12)}
 .mini-slip{display:inline-block;flex:none;width:76px;height:48px;border-radius:6px;background:#fff;box-shadow:inset 0 0 0 2px var(--ink)}
 .mini-slip.urgent{background:#FFE4EA}
@@ -783,8 +771,6 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
 .game-head h1 span{font-size:14px;color:var(--sub);font-weight:700}
 .game-head h1 span b{color:var(--ink)}
 .game-head .back{display:inline-flex;align-items:center;gap:4px;font-weight:800;color:var(--sub);white-space:nowrap;flex:none}
-.tickets-chip{margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border-radius:999px;background:var(--yellow);font-weight:800}
-.tickets-chip b{font-size:16px}
 
 /* 一笔画 */
 .lines-layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;align-items:start}
@@ -823,7 +809,7 @@ a.lvl:hover{transform:translateY(-2px)}
 .how-to b{display:block;color:var(--ink);margin-bottom:2px}
 
 /* 盖章挑战 */
-.stamp-stage{position:relative;height:440px;border-radius:26px;background:#1B1D2A radial-gradient(rgba(255,255,255,.06) 1.2px,transparent 1.7px) 0 0/22px 22px;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation;color:#fff;transition:box-shadow 200ms}
+.stamp-stage{position:relative;height:520px;border-radius:26px;background:#1B1D2A radial-gradient(rgba(255,255,255,.06) 1.2px,transparent 1.7px) 0 0/22px 22px;overflow:hidden;user-select:none;-webkit-user-select:none;touch-action:manipulation;color:#fff;transition:box-shadow 200ms}
 .stamp-stage.hurry{box-shadow:inset 0 0 0 3px var(--red)}
 .stamp-stage.levelup{box-shadow:inset 0 0 60px rgba(242,183,0,.5)}
 .stamp-hud{position:absolute;left:24px;right:24px;top:18px;display:flex;align-items:center;gap:20px;z-index:3}
@@ -966,7 +952,6 @@ html:not([data-motion="off"]) .scroll-hint svg{animation:hint 1.6s ease-in-out i
   .play-hero{padding:22px 18px}
   .play-hero h1{font-size:28px}
   .game-cards{grid-template-columns:minmax(0,1fr)}
-  .game-card{grid-template-rows:170px auto auto}
   .game-head h1{font-size:21px}
   .board-wrap{padding:10px}
   .solved{inset:auto 10px 64px}
@@ -983,3 +968,202 @@ html:not([data-motion="off"]) .scroll-hint svg{animation:hint 1.6s ease-in-out i
 }
 .ticket b .hanko{font-size:10px;margin-left:8px;vertical-align:1px}
 .slide-in>.case-label,.slide-in>.scroll-hint,.slide-in>.btn{justify-self:start}
+
+/* ================= 游戏角 · 玩法列表、一笔画、盖章挑战的选项 ================= */
+.road{padding:22px 24px}
+.game-card{position:relative;display:grid;grid-template-rows:200px auto 1fr;border-radius:24px;background:var(--paper);overflow:hidden}
+.game-card .game-art{transition:filter 200ms}
+.game-card .game-art:hover{filter:brightness(1.05)}
+.game-modes{display:grid;gap:8px;padding:6px 22px 22px;align-content:start}
+.mode{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:12px;padding:12px 14px;border-radius:14px;background:var(--ground);transition:transform 220ms var(--pop),background 160ms}
+a.mode:hover{transform:translateX(4px);background:#E9EBEF}
+a.mode:active{transform:scale(.98)}
+.mode>.icon{width:22px;height:22px}
+.mode b{display:block;font-size:14.5px}
+.mode small{font-size:12px;color:var(--sub)}
+.mode.locked{background:transparent;outline:1.5px dashed var(--line-2);outline-offset:-1.5px;color:var(--faint)}
+.mode.locked b{color:var(--sub)}
+.mode.done>.icon{color:var(--green)}
+.mode.now{background:var(--ink);color:#fff}
+.mode.now small{color:rgba(255,255,255,.7)}
+.side-modes{display:grid;gap:8px}
+.board-note{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 14px;border-radius:12px;background:#FFF6D6;font-size:13px;font-weight:700}
+.board-note .icon{color:#C47F00}
+.game-head h1 span[data-mode-label]{padding:0 10px;border-radius:999px;background:var(--ink);color:#fff;line-height:24px}
+
+/* 盖章挑战 · 玩法和印章样式 */
+.pick-modes{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.pick-mode{position:relative;display:grid;gap:1px;min-width:104px;padding:10px 14px;border-radius:14px;background:rgba(255,255,255,.08);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.2);cursor:pointer;transition:transform 180ms var(--pop)}
+.pick-mode:active{transform:scale(.96)}
+.pick-mode input,.pick-style input{position:absolute;opacity:0;pointer-events:none}
+.pick-mode b{font-size:15px}
+.pick-mode small{display:inline-flex;align-items:center;justify-content:center;gap:3px;font-size:11.5px;color:rgba(255,255,255,.65)}
+.pick-mode small svg{width:11px;height:11px}
+.pick-mode:has(input:checked){background:#fff;color:var(--ink);box-shadow:none}
+.pick-mode:has(input:checked) small{color:var(--sub)}
+.pick-mode:has(input:focus-visible),.pick-style:has(input:focus-visible){outline:2px solid var(--yellow);outline-offset:2px}
+.pick-mode.locked,.pick-style.locked{cursor:not-allowed;opacity:.5}
+.pick-styles{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.pick-style{position:relative;display:grid;justify-items:center;gap:4px;cursor:pointer}
+.pick-style small{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:rgba(255,255,255,.65)}
+.pick-style small svg{width:10px;height:10px}
+.stamp-face{display:grid;place-items:center;min-width:52px;height:42px;padding:0 6px;border:3px solid var(--c,var(--red));border-radius:6px;background:#fff;color:var(--c,var(--red));font-weight:900;font-size:15px;transform:rotate(-8deg);transition:transform 200ms var(--pop)}
+.pick-style:has(input:checked) .stamp-face{box-shadow:0 0 0 3px var(--yellow);transform:rotate(-8deg) scale(1.08)}
+.face-good,.face-great{border-radius:50%;width:44px;min-width:44px;height:44px;font-size:20px}
+.face-great{--c:#F39800}
+.face-dlm svg,.slip-mark.face-dlm svg,.stamper-head .face-dlm svg{width:34px;height:20px;fill:currentColor;stroke:currentColor}
+.face-dlm{--c:var(--blue)}
+.face-title{font-size:12px;line-height:1.05;writing-mode:vertical-rl;height:46px;min-width:46px;padding:2px}
+.slip-mark.face-good,.slip-mark.face-great{border-radius:50%;width:44px;margin-left:-22px}
+.slip-mark.face-great{border-color:#F39800;color:#F39800}
+.slip-mark.face-dlm{border-color:var(--blue);color:var(--blue)}
+.slip-mark.face-title{border-color:var(--c);color:var(--c);font-size:11px;writing-mode:vertical-rl;line-height:1.05;height:46px;width:46px;margin-left:-23px}
+.stamper-head i.face-good,.stamper-head i.face-great{border-radius:50%;padding:2px 6px}
+.stamper-head i.face-great{border-color:#F39800;color:#F39800}
+.stamper-head i.face-dlm{border-color:var(--blue);color:var(--blue);display:grid;place-items:center}
+.stamper-head i.face-title{border-color:var(--c);color:var(--c);font-size:10px;writing-mode:vertical-rl;line-height:1.05;padding:2px}
+.result-nudge{font-size:13px;color:var(--yellow) !important;max-width:24em}
+.result-actions{flex-wrap:wrap;justify-content:center}
+@media(max-width:760px){
+  .road{padding:18px 16px}
+  .game-card{grid-template-rows:160px auto 1fr}
+  .game-modes{padding:4px 16px 16px}
+  .pick-mode{min-width:92px;padding:8px 10px}
+  .stamp-stage{height:520px}
+  .cover-card{gap:9px}
+  .cover-card h2{font-size:24px}
+  .cover-rules{font-size:12px}
+}
+.stamp-cover{overflow:auto}
+
+/* ================= 游戏角 · 勋章解锁 ================= */
+.wallet-swatches{display:flex;flex-wrap:wrap;gap:8px}
+.wallet-swatches i{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
+.wallet-swatches i.open{background:var(--c);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
+.wallet-swatches i.new{animation:tile-drop 640ms var(--pop) both;box-shadow:0 0 0 3px var(--yellow)}
+.wallet-count b{font:700 52px/.9 var(--num)}
+.wallet-count span{font-weight:800;color:rgba(255,255,255,.75)}
+.wallet-next{display:grid;gap:8px}
+.wallet-next li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;font-size:12.5px;color:rgba(255,255,255,.75)}
+.wallet-next .icon{width:16px;height:16px;margin-top:2px;color:rgba(255,255,255,.5)}
+.wallet-next b{display:block;color:#fff;font-size:13px}
+.blocks-card{display:grid;grid-template-columns:320px minmax(0,1fr);gap:28px;align-items:center;padding:24px}
+.blocks-preview{display:block;border-radius:20px;overflow:hidden;box-shadow:0 0 0 1.5px var(--line);transition:transform 260ms var(--pop)}
+.blocks-preview:hover{transform:rotate(-1.5deg) scale(1.02)}
+.blocks-preview .build{display:block;width:100%;height:auto}
+.blocks-text{display:grid;gap:12px}
+.blocks-text h2{display:flex;align-items:baseline;gap:10px;font-size:30px}
+.blocks-text h2 small{font-size:14px;color:var(--sub)}
+.blocks-text p{color:var(--sub);font-size:14px}
+.part-strip{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.part-strip .part-icon{width:34px;height:34px;padding:4px;border-radius:10px;background:var(--ground)}
+.part-strip .more{font-size:12.5px;color:var(--sub);font-weight:700}
+.blocks-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.muted{color:var(--sub);font-size:13px}
+.block-wall{padding:22px 24px}
+.block-wall .sec{margin-bottom:14px;flex-wrap:wrap}
+.wall-row{display:grid;grid-auto-flow:column;grid-auto-columns:150px;gap:14px;overflow-x:auto;padding-bottom:6px}
+.wall-row figure{margin:0;display:grid;gap:6px}
+.wall-row .build{width:150px;height:150px;border-radius:14px;box-shadow:0 0 0 1.5px var(--line)}
+.wall-row figcaption{font-size:12px;color:var(--sub)}
+.wall-row figcaption b{display:block;color:var(--ink);font-size:13px}
+.road h3{margin:16px 0 8px;font-size:13px;color:var(--sub)}
+.road-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.road-item{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 12px;border-radius:14px;background:transparent;outline:1.5px dashed var(--line-2);outline-offset:-1.5px;color:var(--faint)}
+.road-item b{display:block;font-size:13px;color:var(--sub)}
+.road-item small{font-size:11.5px}
+.road-item .icon{width:15px;height:15px}
+.road-item .dot{width:22px;height:22px;border-radius:50%;background:var(--line);box-shadow:inset 0 0 0 1.5px rgba(27,29,42,.1)}
+.road-item .part-icon{width:30px;height:30px;opacity:.35}
+.road-item.open{outline:0;background:var(--ground);color:var(--sub)}
+.road-item.open b{color:var(--ink)}
+.road-item.open .dot{background:var(--c)}
+.road-item.open .part-icon{opacity:1}
+.road-item.new{box-shadow:0 0 0 2px var(--yellow)}
+.award-opens{display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;border-radius:14px;background:#E7F3FF;font-size:13px;font-weight:700;color:var(--blue-text);text-align:left}
+.award-opens .icon{width:20px;height:20px;flex:none}
+
+/* 名牌上的积木作品 */
+.plate-build{position:absolute;right:16px;bottom:16px;z-index:0;width:112px;height:112px;padding:5px;border-radius:16px;background:#fff;box-shadow:0 6px 16px rgba(27,29,42,.18);transform:rotate(3deg)}
+.plate-build .build{display:block;width:100%;height:100%;border-radius:11px}
+.plate.big .plate-build{width:168px;height:168px;right:22px;bottom:22px}
+.plate.small .plate-build{width:78px;height:78px;right:10px;bottom:10px;padding:3px;border-radius:12px}
+.plate:has(.plate-build) .plate-medals{justify-content:flex-start}
+.plate:has(.plate-build) .plate-seal{right:auto;left:auto;top:auto}
+
+/* ================= 积木编辑器 ================= */
+.blocks-layout{display:grid;grid-template-columns:270px minmax(0,1fr) 210px;gap:16px;align-items:start}
+.parts-box{padding:16px;display:grid;gap:14px;max-height:calc(100vh - var(--top) - 120px);overflow:auto;position:sticky;top:calc(var(--top) + 16px)}
+.part-family h2{display:flex;align-items:baseline;gap:8px;font-size:14px;margin-bottom:8px}
+.part-family h2 small{font-size:11.5px;color:var(--sub);font-weight:600}
+.part-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.part-btn{position:relative;display:grid;justify-items:center;gap:2px;padding:8px 4px 6px;border:0;border-radius:12px;background:var(--ground);font-size:11.5px;font-weight:800;color:var(--ink-2);cursor:pointer;transition:transform 160ms var(--pop),box-shadow 160ms}
+.part-btn:hover{transform:translateY(-2px)}
+.part-btn:active{transform:scale(.94)}
+.part-btn .part-icon{width:40px;height:40px}
+.part-btn[aria-pressed="true"]{background:#fff;box-shadow:0 0 0 2.5px var(--ink)}
+.part-btn.locked{background:transparent;outline:1.5px dashed var(--line-2);outline-offset:-1.5px;color:var(--faint)}
+.part-btn.locked .part-icon{opacity:.18}
+.part-need{display:flex;align-items:center;gap:2px;font-size:10.5px;white-space:nowrap;font-weight:700;line-height:1.3;text-align:center;color:var(--faint)}
+.part-need svg{width:10px;height:10px;flex:none}
+.board-area{display:grid;gap:12px;min-width:0}
+.build-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.build-name{flex:1;min-width:140px;height:40px!important;font-weight:800;font-size:15px}
+.build-bar .btn.on{background:var(--ink);color:#fff}
+.board-frame{position:relative;padding:12px;border-radius:24px;background:var(--paper)}
+.block-board{display:block;width:100%;max-height:calc(100vh - var(--top) - 320px);aspect-ratio:1;margin:0 auto;border-radius:14px;touch-action:none;user-select:none;-webkit-user-select:none;color:rgba(27,29,42,.18);box-shadow:0 0 0 1px var(--line)}
+.block-board.dark{color:rgba(255,255,255,.22)}
+.block-board.holding{cursor:copy}
+.block-board .pop{transform-box:fill-box;transform-origin:center}
+.block-board .ghost{opacity:.45;pointer-events:none}
+.select-box{fill:none;stroke:var(--ink);stroke-width:.8;stroke-dasharray:2.5 1.8;pointer-events:none;animation:ants 1s linear infinite}
+.block-board.dark .select-box{stroke:#fff}
+@keyframes ants{to{stroke-dashoffset:-8.6}}
+.board-empty{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;font-weight:800;color:var(--faint);font-size:14px}
+.tool-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tool{display:inline-flex;align-items:center;gap:5px;height:36px;padding:0 12px;border:0;border-radius:999px;background:var(--paper);font-size:12.5px;font-weight:800;color:var(--ink);cursor:pointer;transition:transform 160ms var(--pop)}
+.tool svg{width:16px;height:16px}
+.tool:active{transform:scale(.92)}
+.tool:disabled{opacity:.35;cursor:default}
+.tool-gap{flex:1}
+.part-count{font-size:12px;color:var(--sub)}
+.paint-box{display:flex;align-items:center;flex-wrap:wrap;gap:10px 18px;padding:10px 14px;border-radius:18px;background:var(--paper)}
+.swatches{display:flex;flex-wrap:wrap;gap:8px}
+.swatch{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:50%;background:var(--c);box-shadow:inset 0 0 0 1.5px rgba(27,29,42,.15);cursor:pointer;color:var(--faint);transition:transform 160ms var(--pop)}
+.swatch[aria-checked="true"]{box-shadow:0 0 0 3px #fff,0 0 0 5.5px var(--ink)}
+.swatch.locked{background:var(--ground);box-shadow:inset 0 0 0 1.5px var(--line-2)}
+.swatch svg{width:14px;height:14px}
+.bgs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;font-weight:800;color:var(--sub)}
+.bg-btn{width:26px;height:26px;border:0;border-radius:7px;background:var(--c);box-shadow:inset 0 0 0 1.5px rgba(27,29,42,.15);cursor:pointer}
+.bg-btn[aria-pressed="true"]{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink)}
+.paint-hint{font-size:12px;color:var(--sub)}
+.works{padding:16px;display:grid;gap:10px;align-content:start}
+.work{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:10px;padding:6px;border-radius:14px;font-size:12.5px;font-weight:700;transition:background 160ms}
+.work:hover{background:var(--ground)}
+.work.now{background:var(--ground);box-shadow:inset 0 0 0 2px var(--ink)}
+.work .build{width:52px;height:52px;border-radius:10px;box-shadow:0 0 0 1px var(--line)}
+.work span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.work span i{font-style:normal;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--yellow);font-size:10.5px}
+.work.new{grid-template-columns:52px 1fr}
+.work.new .icon{width:52px;height:52px;padding:14px;border-radius:10px;border:1.5px dashed var(--line-2)}
+@media(max-width:1180px){
+  .blocks-layout{grid-template-columns:240px minmax(0,1fr)}
+  .works{grid-column:1/-1;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .works .sec{grid-column:1/-1}
+}
+@media(max-width:860px){
+  .blocks-card{grid-template-columns:minmax(0,1fr)}
+  .blocks-preview{max-width:320px}
+  .blocks-layout{grid-template-columns:minmax(0,1fr)}
+  .board-area{order:-1}
+  .parts-box{position:static;max-height:none}
+  .block-board{max-height:none}
+}
+@media(max-width:760px){
+  .part-grid{grid-template-columns:repeat(4,1fr)}
+  .tool span{display:none}
+  .tool{padding:0 11px}
+  .board-frame{padding:6px;border-radius:18px}
+  .plate-build{width:84px;height:84px}
+  .plate.big .plate-build{width:120px;height:120px}
+}

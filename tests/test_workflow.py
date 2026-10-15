@@ -7,8 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from app import create_app
 from bounty.db import connect, initialize
-from bounty import discover, games, progress, titles
-from bounty.db import STARTER_TICKETS
+from bounty import blocks, discover, games, progress, titles, unlocks
 from bounty.service import InvalidAction, act, clap, create_task, dismiss, parse_tags, set_interests
 from bounty.honors import MEDALS, medal_key
 
@@ -488,19 +487,17 @@ class WorkflowTest(unittest.TestCase):
             db.execute('UPDATE tasks SET created_at=? WHERE id=?',
                        ((datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec='seconds'), task_id))
 
-    def test_cold_tasks_pay_extra_experience_and_tickets(self):
+    def test_cold_tasks_pay_extra_experience(self):
         self.age(self.task_id, 6)
         with connect(self.path) as db:
             pick = next(p for p in discover.recommend(db, 2, limit=10) if p['task']['id'] == self.task_id)
             self.assertIn('cold', dict(pick['reasons']))
-            self.assertEqual(games.balance(db, 2), STARTER_TICKETS)
         self.assertIn('冷门 +20%', self.clients[1].get('/').text)
         self.finish(self.task_id)
         with connect(self.path) as db:
             honor = db.execute('SELECT * FROM honors WHERE task_id=?', (self.task_id,)).fetchone()
             self.assertEqual(honor['bonus'], 6)                       # 常规 30 经验的 20%
             self.assertEqual(progress.person_progress(db, 2)['xp'], 36)
-            self.assertEqual(games.balance(db, 2), STARTER_TICKETS + 3)   # 常规 2 张 + 冷门 1 张
         # 新鲜的任务不算冷门
         fresh = create_task(self.path, 1, self.data)
         self.finish(fresh)
@@ -541,44 +538,61 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual([a['tier'] for a in awards][-1], 'all')
         self.assertIn('class="plate big complete"', self.clients[1].get('/honors').text)
 
-    def test_one_stroke_levels_unlock_with_tickets_and_are_checked_on_the_server(self):
+    def euler(self, board):
         from collections import defaultdict
-        def euler(level):
-            _, nodes, edges = games.LEVELS[level - 1]
-            adj = defaultdict(list)
-            for i, (a, b) in enumerate(edges):
-                adj[a].append((b, i)); adj[b].append((a, i))
-            odd = [v for v in adj if len(adj[v]) % 2]
-            stack, path, used = [odd[0] if odd else edges[0][0]], [], set()
-            while stack:
-                v = stack[-1]
-                while adj[v] and adj[v][-1][1] in used:
-                    adj[v].pop()
-                if adj[v]:
-                    w, i = adj[v].pop(); used.add(i); stack.append(w)
-                else:
-                    path.append(stack.pop())
-            return path[::-1]
-        for level in range(1, len(games.LEVELS) + 1):
-            self.assertTrue(games.check_stroke(level, euler(level)), level)
+        _, nodes, edges = board
+        adj = defaultdict(list)
+        for i, (a, b) in enumerate(edges):
+            adj[a].append((b, i)); adj[b].append((a, i))
+        odd = [v for v in adj if len(adj[v]) % 2]
+        stack, path, used = [odd[0] if odd else edges[0][0]], [], set()
+        while stack:
+            v = stack[-1]
+            while adj[v] and adj[v][-1][1] in used:
+                adj[v].pop()
+            if adj[v]:
+                w, i = adj[v].pop(); used.add(i); stack.append(w)
+            else:
+                path.append(stack.pop())
+        return ','.join(map(str, path[::-1]))
+
+    def award(self, worker, key):
+        importance, urgency = key.split('-')
+        self.finish(create_task(self.path, 1, {**self.data, 'importance': importance, 'urgency': urgency}), worker=worker)
+
+    def test_one_stroke_is_free_to_replay_and_checked_on_the_server(self):
+        stroke = lambda board: [int(n) for n in self.euler(board).split(',')]
+        for level, board in enumerate(games.LEVELS, 1):
+            self.assertTrue(games.check_stroke(board, stroke(board)), level)
+        # 随机出的题由一次随机游走生成，每一道都画得出来
+        for seed in range(200):
+            self.assertTrue(games.check_stroke(games.random_board(seed), stroke(games.random_board(seed))), seed)
         worker = self.clients[1]
-        self.assertEqual(self.post_json(worker, '/play/lines/unlock', status=400)['error'], '先把这一关画完，再解锁下一关。')
         self.assertEqual(self.post_json(worker, '/play/lines/1', {'stroke': '0,1'}, status=400)['error'], '还没有一笔走完所有的线。')
-        self.assertEqual(self.post_json(worker, '/play/lines/2', {'stroke': '0,1,2,0'}, status=400)['error'], '这一关还没解锁。')
-        solved = self.post_json(worker, '/play/lines/1', {'stroke': ','.join(map(str, euler(1)))})
-        self.assertTrue(solved['first'] and solved['can_unlock'])
-        self.assertEqual(self.post_json(worker, '/play/lines/unlock')['level'], 2)
-        self.post_json(worker, '/play/lines/2', {'stroke': ','.join(map(str, euler(2)))})
-        self.post_json(worker, '/play/lines/unlock')
-        # 两张试玩券用完了
-        self.post_json(worker, '/play/lines/3', {'stroke': ','.join(map(str, euler(3)))})
-        self.assertIn('游戏券用完了', self.post_json(worker, '/play/lines/unlock', status=400)['error'])
+        # 前三关直接开，之后画完一关开下一关；画过的随便重玩，不花任何东西
+        self.assertIn('先画完第 3 关', self.post_json(worker, '/play/lines/4', {'stroke': self.euler(games.LEVELS[3])}, status=400)['error'])
+        for _ in range(3):
+            solved = self.post_json(worker, '/play/lines/3', {'stroke': self.euler(games.LEVELS[2])})
+        self.assertEqual((solved['first'], solved['next']), (False, '/play/lines?level=4'))
+        self.assertTrue(self.post_json(worker, '/play/lines/4', {'stroke': self.euler(games.LEVELS[3])})['first'])
+        # 每日一笔：全队同一题
+        daily = games.daily_board(games.today())
+        first = self.post_json(worker, '/play/lines/daily', {'stroke': self.euler(daily)})
+        self.assertEqual((first['first'], first['daily']), (True, 1))
+        self.assertFalse(self.post_json(worker, '/play/lines/daily', {'stroke': self.euler(daily)})['first'])
+        self.assertEqual(self.post_json(self.clients[2], '/play/lines/daily', {'stroke': self.euler(daily)})['daily'], 2)
+        # 随机一笔要一共 3 枚勋章
+        self.assertEqual(worker.get('/play/lines/random/7').status_code, 302)
+        for key in ('light-normal', 'light-normal', 'standard-normal'):
+            self.award(2, key)
+        self.assertIn('第 7 号', worker.get('/play/lines/random/7').text)
+        self.assertIn('/play/lines/random', self.post_json(worker, '/play/lines/random/7', {'stroke': self.euler(games.random_board(7))})['next'])
         with connect(self.path, write=True) as db:
             db.executemany('INSERT OR IGNORE INTO lines_solved (user_id,level,solved_at) VALUES (2,?,?)',
-                           [(n, '2026-01-01T00:00:00+00:00') for n in range(4, 13)])
+                           [(n, '2026-01-01T00:00:00+00:00') for n in range(1, 13)])
             self.assertEqual(games._new_game_titles(db, 2)[0]['key'], 'oneline')
 
-    def test_stamp_runs_cost_a_ticket_and_reject_impossible_results(self):
+    def test_stamp_is_free_to_replay_and_rejects_impossible_results(self):
         worker = self.clients[1]
         run = self.post_json(worker, '/play/stamp/start')['run']
         self.assertIn('时间不对', self.post_json(worker, f'/play/stamp/{run}', {'score': 500, 'combo': 5}, status=400)['error'])
@@ -590,9 +604,69 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(result['best'], {'score': 4200, 'combo': 31, 'runs': 1})
         self.assertEqual(result['titles'][0]['key'], 'stamper')
         self.assertIn('已经结束', self.post_json(worker, f'/play/stamp/{run}', {'score': 9000, 'combo': 31}, status=400)['error'])
-        self.post_json(worker, '/play/stamp/start')
-        self.assertIn('游戏券用完了', self.post_json(worker, '/play/stamp/start', status=400)['error'])
-        self.assertIn('游戏券', worker.get('/play').text)
+        for _ in range(5):   # 不花东西，想玩几局玩几局
+            self.post_json(worker, '/play/stamp/start')
+        # 玩法跟着勋章开：「急」勋章开加急日，「面」勋章开期末周
+        self.assertIn('「急」勋章', self.post_json(worker, '/play/stamp/start', {'mode': 'rush'}, status=400)['error'])
+        self.award(2, 'light-urgent')
+        self.post_json(worker, '/play/stamp/start', {'mode': 'rush'})
+        self.assertIn('「面」', self.post_json(worker, '/play/stamp/start', {'mode': 'finals'}, status=400)['error'])
+        self.award(2, 'major-normal')
+        started = self.post_json(worker, '/play/stamp/start', {'mode': 'finals'})
+        self.assertEqual((started['seconds'], started['mode']), (45, 'finals'))
+        with connect(self.path, write=True) as db:
+            db.execute('UPDATE game_runs SET started_at=? WHERE id=?',
+                       ((datetime.now(timezone.utc) - timedelta(seconds=35)).isoformat(timespec='seconds'), started['run']))
+        self.assertIn('时间不对', self.post_json(worker, f"/play/stamp/{started['run']}", {'score': 10, 'combo': 1}, status=400)['error'])
+        self.assertIn('期末周', worker.get('/play/stamp?mode=finals').text)
+
+    def test_medals_open_block_parts_and_colours(self):
+        worker = self.clients[1]
+        with connect(self.path) as db:
+            have = unlocks.unlocked(db, 2)
+        self.assertEqual({item for item in have if item.startswith(('part:', 'color:'))},
+                         {'color:ink', 'color:white', 'part:dot-s', 'part:bar-3', 'part:sq-2'})
+        save = lambda parts, bg='paper', build_id=None, client=worker, status=200: client.post(
+            '/play/blocks/save', json={'id': build_id, 'name': '小房子', 'bg': bg, 'parts': parts},
+            headers={'X-CSRF-Token': self.csrf(client), 'Accept': 'application/json'})
+        self.assertEqual(save([['sq-2', 'ink', 0, 0, 0]]).status_code, 200)
+        self.assertIn('还没解锁', save([['quarter', 'ink', 0, 0, 0]]).json['error'])
+        self.assertIn('还没解锁', save([['sq-2', 'cyan', 0, 0, 0]]).json['error'])
+        self.assertIn('外面', save([['bar-3', 'ink', 14, 0, 0]]).json['error'])
+        self.assertEqual(save([['bar-3', 'ink', 15, 0, 1]]).status_code, 200)     # 竖着放就放得下
+        self.assertIn('不对', save([['sq-2', 'ink', 0, 0, 7]]).json['error'])
+        self.assertEqual(worker.post('/play/blocks/save', json={'parts': []}).status_code, 400)   # 没带令牌
+        # 拿到「线」勋章：多了青色和长线，颁奖时会说出来
+        self.award(2, 'standard-normal')
+        revealed = self.post_json(worker, '/honors/reveal')
+        self.assertIn('青色', revealed['awards'][0]['opens'])
+        self.assertIn('长线', revealed['awards'][0]['opens'])
+        self.assertIn('class="new-dot"', worker.get('/').text)
+        build = save([['bar-6', 'cyan', 2, 2, 0], ['medal-standard-normal', 'white', 5, 5, 0]], bg='cyan').json['id']
+        # 只能改、挂、删自己的作品
+        self.assertIn('不存在', save([], build_id=build, client=self.clients[2]).json['error'])
+        self.assertTrue(self.post_json(worker, f'/play/blocks/{build}/show')['shown'])
+        self.assertIn('plate-build', worker.get('/honors').text)
+        play = worker.get('/play').text
+        self.assertIn('积木墙', play)
+        self.assertNotIn('class="new-dot"', worker.get('/').text)   # 进过游戏角，「新」就收起来
+        self.assertIn('小房子', self.clients[2].get('/play').text)
+        self.assertFalse(self.post_json(worker, f'/play/blocks/{build}/show')['shown'])
+        self.assertEqual(self.post_json(self.clients[2], f'/play/blocks/{build}/show', status=400)['error'], '这件作品不存在。')
+        self.post(worker, f'/play/blocks/{build}/delete', {})
+        with connect(self.path) as db:
+            self.assertEqual(len(blocks.mine(db, 2)), 2)
+        self.assertIn('data-blocks', worker.get('/play/blocks').text)
+
+    def test_old_ticket_ledger_is_dropped(self):
+        legacy = str(Path(self.temp.name) / 'tickets.sqlite3')
+        initialize(legacy)
+        with connect(legacy, write=True) as db:
+            db.execute('CREATE TABLE tickets (id INTEGER PRIMARY KEY, user_id INTEGER, delta INTEGER, reason TEXT, created_at TEXT)')
+            db.execute("INSERT INTO tickets (user_id,delta,reason,created_at) VALUES (1,3,'task','2026-01-01')")
+        initialize(legacy)
+        with connect(legacy) as db:
+            self.assertFalse(db.execute("SELECT 1 FROM sqlite_master WHERE name='tickets'").fetchone())
 
     def test_claps_come_back_as_a_note_once(self):
         self.finish(self.task_id)

@@ -7,11 +7,11 @@
 <div class="wrap game-page">
   <header class="game-head">
     <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
-    <h1>盖章挑战<span>最好 <b class="num" data-best>{{ best.score }}</b> 分 · 最高 <b class="num" data-best-combo>{{ best.combo }}</b> 连击</span></h1>
-    <span class="tickets-chip" title="游戏券">{{ icon('ticket') }}<b class="num" data-tickets>{{ tickets }}</b></span>
+    {% set chosen = request.args.get('mode') if request.args.get('mode') in modes and modes[request.args.get('mode')].open else 'normal' %}
+    <h1>盖章挑战<span data-mode-label>{{ modes[chosen].name }}</span><span>最好 <b class="num" data-best>{{ best[chosen].score }}</b> 分 · 最高 <b class="num" data-best-combo>{{ best[chosen].combo }}</b> 连击</span></h1>
   </header>
 
-  <section class="stamp-stage" data-stamp-game data-start="{{ url_for('start_stamp') }}" data-seconds="{{ seconds }}" aria-label="盖章挑战">
+  <section class="stamp-stage" data-stamp-game data-start="{{ url_for('start_stamp') }}" aria-label="盖章挑战">
     <div class="stamp-hud" aria-live="off">
       <span class="hud-score"><b class="num" data-score>0</b>分</span>
       <span class="hud-combo" data-combo-box><b class="num" data-combo>0</b>连击<i class="num" data-mult>×1</i></span>
@@ -28,14 +28,28 @@
       <div class="cover-card">
         <span class="case-label">盖章挑战</span>
         <h2>看准了再盖</h2>
+        <div class="pick-modes" role="radiogroup" aria-label="玩法">
+          {% for key, mode in modes.items() %}
+          <label class="pick-mode{{ ' locked' if not mode.open }}" data-best-score="{{ best[key].score }}" data-best-combo="{{ best[key].combo }}" data-name="{{ mode.name }}" {% if not mode.open %}title="{{ mode.need }}后开放"{% endif %}>
+            <input type="radio" name="mode" value="{{ key }}" {% if key == chosen %}checked{% endif %} {% if not mode.open %}disabled{% endif %}>
+            <b>{{ mode.name }}</b><small>{% if mode.open %}{{ mode.seconds }} 秒{% if best[key].runs %} · 最好 {{ best[key].score }}{% endif %}{% else %}{{ icon('lock') }}{{ mode.need }}{% endif %}</small>
+          </label>{% endfor %}
+        </div>
         <ul class="cover-rules">
           <li><i class="mini-slip"></i>普通单子：盖在正中间是「完美」，偏一点是「不错」</li>
           <li><i class="mini-slip urgent"></i>加急单子：跑得快，分数翻倍</li>
           <li><i class="mini-slip void"></i>退回的单子：别盖，盖了连击清零</li>
         </ul>
-        <p>{{ seconds }} 秒。按空格或者点一下画面盖章。连击每满 10 下，倍数涨一档。漏掉一张也会断连击。</p>
-        {% if tickets %}<button type="button" class="btn btn-big" data-go>{{ icon('play') }}用 1 张券开始</button>
-        {% else %}<a class="btn btn-big" href="{{ url_for('index') }}">券用完了，去接个任务</a>{% endif %}
+        <p>按空格或者点一下画面盖章。连击每满 10 下，倍数涨一档。漏掉一张也会断连击。</p>
+        <div class="pick-styles" role="radiogroup" aria-label="印章样式">
+          {% for style in styles %}
+          <label class="pick-style{{ ' locked' if not style.open }}" title="{{ style.need ~ '后开放' if not style.open else '' }}">
+            <input type="radio" name="style" value="{{ style.key }}" data-text="{{ style.name }}" {% if style.color %}data-color="{{ style.color }}"{% endif %} {% if loop.first %}checked{% endif %} {% if not style.open %}disabled{% endif %}>
+            <span class="stamp-face{{ ' face-' ~ style.key }}" {% if style.color %}style="--c:{{ style.color }}"{% endif %}>{% if style.key == 'dlm' %}<svg viewBox="0 0 40 24" aria-hidden="true"><circle cx="6" cy="12" r="4"/><path d="M14 12h10" stroke-width="4" stroke-linecap="round"/><path d="M28 20a8 8 0 0 1 8-8v8z"/></svg>{% else %}{{ style.name }}{% endif %}</span>
+            {% if not style.open %}<small>{{ icon('lock') }}</small>{% elif style.key == 'title' %}<small>你的称号</small>{% endif %}
+          </label>{% endfor %}
+        </div>
+        <button type="button" class="btn btn-big" data-go>{{ icon('play') }}开始</button>
         <noscript><p class="empty">盖章挑战需要开启 JavaScript。</p></noscript>
       </div>
     </div>
@@ -50,8 +64,10 @@
           <div><dt>失手</dt><dd class="num" data-final-miss>0</dd></div>
         </dl>
         <div class="result-titles" data-result-titles></div>
+        <p class="result-nudge" data-result-nudge hidden>已经连着玩了好几局啦，歇歇眼睛，或者去「发现」看看有没有能搭把手的任务。</p>
         <div class="result-actions">
           <a class="btn btn-line" href="{{ url_for('play') }}">回游戏角</a>
+          <button type="button" class="btn btn-line" data-change>换玩法</button>
           <button type="button" class="btn" data-again>{{ icon('play') }}再来一局</button>
         </div>
       </div>

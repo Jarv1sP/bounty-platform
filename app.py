@@ -8,8 +8,8 @@ from pathlib import Path
 from urllib.parse import unquote
 from flask import Flask, abort, flash, g, redirect, render_template, render_template_string, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
-from bounty import discover, games, progress, recap, titles
-from bounty.db import TICKETS, connect, initialize
+from bounty import blocks, discover, games, progress, recap, titles, unlocks
+from bounty.db import connect, initialize
 from bounty.honors import COLD_DAYS, EFFORT, IMPORTANCE, URGENCY, MEDALS, cold_bonus, medal_key, task_xp
 from bounty.service import (CATEGORIES, STATUSES, KINDS, MAX_INTERESTS, TEAM_TZ, InvalidAction, act, clap, create_task,
                             dismiss, is_cold, now, required, set_interests, waited_days, zone)
@@ -90,7 +90,9 @@ def create_app(config=None):
                 g.user = db.execute('SELECT id,name FROM users WHERE id=?', (session['user_id'],)).fetchone()
         if 'csrf' not in session:
             session['csrf'] = secrets.token_hex(24)
-        if request.method == 'POST' and not secrets.compare_digest(session['csrf'].encode('utf-8'), request.form.get('csrf', '').encode('utf-8')):
+        # 表单放在 csrf 字段里；积木存档这类 JSON 请求放在 X-CSRF-Token 头里
+        token = request.form.get('csrf') or request.headers.get('X-CSRF-Token', '')
+        if request.method == 'POST' and not secrets.compare_digest(session['csrf'].encode('utf-8'), token.encode('utf-8')):
             abort(400, description='表单已过期，请刷新后重试。')
 
     def login_required(view):
@@ -106,7 +108,8 @@ def create_app(config=None):
                                  urgency_labels=URGENCY, effort_labels=EFFORT, medals=MEDALS, medal_key=medal_key,
                                  task_xp=progress.task_xp, praise_options=PRAISE, due_label=due_label, tag_look=tag_look,
                                  max_interests=MAX_INTERESTS, local_now=lambda: datetime.now(g.tz), offer_xp=offer_xp,
-                                 cold_days=cold_days, is_cold=is_cold, title_names=titles.BY_KEY)
+                                 cold_days=cold_days, is_cold=is_cold, title_names=titles.BY_KEY,
+                                 block_parts=blocks.PARTS, block_colors=blocks.COLORS, block_bgs=blocks.BACKGROUNDS)
 
     def page_url(**changes):
         """Same page, same filters, with a few changed; empty values drop out of the URL."""
@@ -117,13 +120,13 @@ def create_app(config=None):
 
     @app.context_processor
     def context():
-        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0, tickets=0, my_title=None)
+        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0, play_new=0, my_title=None)
         if g.get('user'):
             with database() as db:
                 # 信箱里装两种东西：还没拆的勋章，和刚解锁、还没庆祝过的称号
                 extra['mailbox'] = db.execute('SELECT COUNT(*) FROM honors WHERE user_id=? AND seen_at IS NULL',
                                               (g.user['id'],)).fetchone()[0] + len(titles.unseen(db, g.user['id']))
-                extra['tickets'] = games.balance(db, g.user['id'])
+                extra['play_new'] = unlocks.new_count(db, g.user['id'])
                 extra['my_title'] = titles.chosen_title(db, g.user['id'])
                 extra['me'] = progress.person_progress(db, g.user['id'])
                 # 轮到我的事：我在做的、等我验收的
@@ -336,8 +339,12 @@ def create_app(config=None):
                     'SELECT medal_key,COUNT(*) n FROM honors WHERE user_id=? GROUP BY medal_key ORDER BY n DESC', (user['id'],))]
                 team.append(dict(id=user['id'], name=user['name'], featured=shown or kinds[:3],
                                  level=levels.get(user['id'], progress.level_info(0)),
-                                 title=titles.chosen_title(db, user['id']), complete=len(kinds) == len(MEDALS)))
+                                 title=titles.chosen_title(db, user['id']), complete=len(kinds) == len(MEDALS),
+                                 build=None))
             team.sort(key=lambda person: (-person['level']['xp'], person['id']))
+            shown_builds = blocks.shown_by_user(db)
+            for person in team:
+                person['build'] = shown_builds.get(person['id'])
             bundles = progress.team_bundles(db)
             interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=? ORDER BY rowid', (g.user['id'],))]
             title_board = titles.board(db, g.user['id'])
@@ -370,7 +377,8 @@ def create_app(config=None):
                               task=url_for('detail', task_id=award['task_id'])) for award in got])
         return render_template('honors.html', awards=awards, by_key=by_key, featured=featured, plate_medals=plate_medals,
                                stats=stats, team=team, bundles=bundles, rows=progress.ROWS, case=case, interests=interests,
-                               title_board=title_board, term=recap.term_of(datetime.now(timezone.utc)))
+                               title_board=title_board, term=recap.term_of(datetime.now(timezone.utc)),
+                               my_build=shown_builds.get(g.user['id']))
 
     @app.post('/honors/title')
     @login_required
@@ -421,6 +429,7 @@ def create_app(config=None):
             db.executemany('UPDATE honors SET seen_at=? WHERE task_id=? AND user_id=?',
                            [(now(), row['task_id'], g.user['id']) for row in awards])
             after = progress.person_progress(db, g.user['id'])
+            titles_before = db.execute('SELECT COUNT(*) FROM titles_seen WHERE user_id=?', (g.user['id'],)).fetchone()[0]
             fresh_titles = titles.take_unseen(db, g.user['id'])
         # 这一批之前是什么样：用来算"第一枚""新种类""凑齐一行""全收集""升级"这些要放大庆祝的时刻
         counts = dict(after['counts'])
@@ -431,6 +440,7 @@ def create_app(config=None):
         items = []
         for index, row in enumerate(awards):
             first = counts[row['medal_key']] == 0
+            before = dict(counts)
             counts[row['medal_key']] += 1
             completed_row = next((label for label, members in progress.ROWS.values()
                                   if row['medal_key'] in members and first and all(counts[k] for k in members)), None)
@@ -438,28 +448,98 @@ def create_app(config=None):
             items.append(dict(task_id=row['task_id'], medal_key=row['medal_key'], title=row['title'], owner=row['owner'],
                               praise=row['praise'], name=MEDALS[row['medal_key']]['name'],
                               xp=task_xp(row['medal_key']) + row['bonus'], bonus=row['bonus'],
-                              tickets=TICKETS[row['importance']] + row['cold'], debut=total_before == 0 and index == 0,
+                              opens=unlocks.opened_by(before, counts, titles_before), debut=total_before == 0 and index == 0,
                               first=first, row=completed_row,
                               tier='all' if everything else 'row' if completed_row else 'new' if first else 'plain'))
+        counts_before = dict(after['counts'])
+        for row in awards:
+            counts_before[row['medal_key']] -= 1
         return jsonify(awards=items, before=progress.level_info(xp_before),
+                       unlocks=unlocks.opened_by(counts_before, after['counts'], titles_before, titles_before + len(fresh_titles)),
                        titles=[dict(key=t['key'], name=t['name'], how=t['how'], color=t['color']) for t in fresh_titles],
                        after={k: after[k] for k in ('xp', 'level', 'name', 'into', 'span', 'to_next', 'percent', 'kinds', 'complete')})
 
-    # ---------------- 游戏角：做任务攒券，券换一局小游戏；游戏只解锁称号，不给经验和勋章 ----------------
+    # ---------------- 游戏角：全都随便玩；勋章解锁积木的颜色和零件、游戏的玩法和印章，解锁了就一直在 ----------------
     def json_error(error):
         return jsonify(error=str(error)), 400
 
     @app.get('/play')
     @login_required
     def play():
-        with database() as db:
+        with database(write=True) as db:
+            board = unlocks.board(db, g.user['id'])
             state = games.lines_state(db, g.user['id'])
             best = games.stamp_best(db, g.user['id'])
             game_titles = [item for item in titles.board(db, g.user['id']) if item['key'] in games.GAME_TITLES]
-            earned = db.execute("""SELECT k.delta,k.created_at,t.title,t.cold FROM tickets k LEFT JOIN tasks t ON t.id=k.task_id
-                WHERE k.user_id=? AND k.delta>0 ORDER BY k.id DESC LIMIT 4""", (g.user['id'],)).fetchall()
-        return render_template('play.html', lines=state, best=best, game_titles=game_titles, earned=earned,
-                               ticket_rule=TICKETS, levels=games.LEVELS)
+            daily_done = bool(db.execute('SELECT 1 FROM daily_solved WHERE user_id=? AND day=?', (g.user['id'], games.today())).fetchone())
+            daily_count = games.daily_count(db)
+            mine = blocks.mine(db, g.user['id'])
+            wall = list(blocks.shown_by_user(db).values())
+            unlocks.mark_seen(db, g.user['id'])   # 看过了，导航上的「新」收起来
+        have = {item['id'] for item in board if item['open']}
+        return render_template('play.html', board=board, lines=state, best=best, modes=games.MODES, have=have,
+                               game_titles=game_titles, levels=games.LEVELS, daily_done=daily_done, daily_count=daily_count,
+                               mine=mine[:4], builds=len(mine), wall=wall, part_shapes=blocks.PARTS, colors=blocks.COLORS)
+
+    # ---------- 积木 ----------
+    @app.get('/play/blocks')
+    @login_required
+    def play_blocks():
+        wanted = request.args.get('id', '')
+        with database() as db:
+            parts, colors = blocks.palette(db, g.user['id'])
+            mine = blocks.mine(db, g.user['id'])
+        build = next((item for item in mine if str(item['id']) == wanted), None)
+        if wanted and not build:
+            return redirect(url_for('play_blocks'))
+        editor = dict(parts={part['id']: {k: part[k] for k in ('w', 'h', 'shape', 'open', 'name', 'need')} for part in parts},
+                      colors={color['id']: {k: color[k] for k in ('hex', 'open', 'name', 'need')} for color in colors},
+                      backgrounds=blocks.BACKGROUNDS, build=build)
+        return render_template('blocks.html', parts=parts, colors=colors, mine=mine, build=build, size=blocks.BOARD,
+                               backgrounds=blocks.BACKGROUNDS, max_parts=blocks.MAX_PARTS, editor=editor)
+
+    @app.post('/play/blocks/save')
+    @login_required
+    def save_build():
+        data = request.get_json(silent=True) or {}
+        build_id = data.get('id')
+        try:
+            saved = blocks.save(app.config['DATABASE'], g.user['id'], build_id if isinstance(build_id, int) else None,
+                                data.get('name', ''), data.get('bg', 'paper'), data.get('parts'))
+        except InvalidAction as error:
+            return json_error(error)
+        return jsonify(id=saved, url=url_for('play_blocks', id=saved))
+
+    @app.post('/play/blocks/<int:build_id>/show')
+    @login_required
+    def show_build(build_id):
+        try:
+            shown = blocks.show(app.config['DATABASE'], g.user['id'], build_id)
+        except InvalidAction as error:
+            return json_error(error)
+        return jsonify(shown=shown)
+
+    @app.post('/play/blocks/<int:build_id>/delete')
+    @login_required
+    def delete_build(build_id):
+        try:
+            blocks.delete(app.config['DATABASE'], g.user['id'], build_id)
+        except InvalidAction as error:
+            flash(str(error), 'error')
+        return redirect(url_for('play_blocks'))
+
+    # ---------- 一笔画 ----------
+    def lines_page(kind, value, board):
+        with database() as db:
+            state = games.lines_state(db, g.user['id'])
+            daily = dict(done=bool(db.execute('SELECT 1 FROM daily_solved WHERE user_id=? AND day=?',
+                                              (g.user['id'], games.today())).fetchone()), count=games.daily_count(db))
+        name, nodes, edges = board
+        solve = {'level': lambda: url_for('solve_lines', level=value), 'daily': lambda: url_for('solve_daily'),
+                 'random': lambda: url_for('solve_random', seed=value)}[kind]()
+        return render_template('lines.html', kind=kind, value=value, state=state, name=name, levels=games.LEVELS,
+                               board=dict(nodes=nodes, edges=edges), solve=solve, daily=daily,
+                               random_need=unlocks.need_text(unlocks.BY_ID['random'][3]))
 
     @app.get('/play/lines')
     @login_required
@@ -467,55 +547,90 @@ def create_app(config=None):
         with database() as db:
             state = games.lines_state(db, g.user['id'])
         wanted = request.args.get('level', '')
-        unsolved = [n for n in range(1, state['unlocked'] + 1) if n not in state['solved']]
-        level = int(wanted) if wanted.isdigit() else (unsolved[0] if unsolved else state['unlocked'])
-        if not 1 <= level <= state['unlocked']:
+        unsolved = [n for n in state['open'] if n not in state['solved']]
+        level = int(wanted) if wanted.isdigit() else (unsolved[0] if unsolved else state['open'][-1])
+        if level not in state['open']:
             return redirect(url_for('play_lines'))
-        name, nodes, edges = games.LEVELS[level - 1]
-        return render_template('lines.html', state=state, level=level, name=name, levels=games.LEVELS,
-                               board=dict(nodes=nodes, edges=edges))
+        return lines_page('level', level, games.LEVELS[level - 1])
 
-    @app.post('/play/lines/unlock')
+    @app.get('/play/lines/daily')
     @login_required
-    def unlock_lines():
-        try:
-            level = games.unlock_level(app.config['DATABASE'], g.user['id'])
-        except InvalidAction as error:
-            return json_error(error)
-        return jsonify(level=level, url=url_for('play_lines', level=level))
+    def play_daily():
+        return lines_page('daily', games.today(), games.daily_board(games.today()))
 
-    @app.post('/play/lines/<int:level>')
+    @app.get('/play/lines/random')
+    @app.get('/play/lines/random/<int:seed>')
     @login_required
-    def solve_lines(level):
+    def play_random(seed=None):
+        with database() as db:
+            if not games.lines_state(db, g.user['id'])['random']:
+                flash(f'随机一笔要{unlocks.need_text(unlocks.BY_ID["random"][3])}才开。', 'error')
+                return redirect(url_for('play'))
+        if seed is None or seed > 2 ** 31:
+            return redirect(url_for('play_random', seed=secrets.randbelow(10 ** 6)))
+        return lines_page('random', seed, games.random_board(seed))
+
+    def solve_with(kind, value):
         raw = request.form.get('stroke', '')
         try:
             stroke = [int(part) for part in raw.split(',')] if raw else []
         except ValueError:
             return json_error('笔画数据不对。')
         try:
-            result = games.solve_level(app.config['DATABASE'], g.user['id'], level, stroke)
+            result = games.solve(app.config['DATABASE'], g.user['id'], kind, value, stroke)
         except InvalidAction as error:
             return json_error(error)
         state = result['state']
-        return jsonify(first=result['first'], titles=result['titles'], solved=len(state['solved']), total=state['total'],
-                       next=url_for('play_lines', level=level + 1) if level < state['unlocked'] else None,
-                       can_unlock=level == state['unlocked'] < state['total'])
+        reply = dict(first=result['first'], titles=result['titles'], solved=len(state['solved']), total=state['total'],
+                     daily=result['daily'])
+        if kind == 'level' and value < state['total']:
+            reply['next'] = url_for('play_lines', level=value + 1) if value + 1 in state['open'] else None
+        elif kind == 'random':
+            reply['next'] = url_for('play_random')
+        return jsonify(reply)
 
+    @app.post('/play/lines/<int:level>')
+    @login_required
+    def solve_lines(level):
+        return solve_with('level', level)
+
+    @app.post('/play/lines/daily')
+    @login_required
+    def solve_daily():
+        return solve_with('daily', games.today())
+
+    @app.post('/play/lines/random/<int:seed>')
+    @login_required
+    def solve_random(seed):
+        return solve_with('random', seed)
+
+    # ---------- 盖章挑战 ----------
     @app.get('/play/stamp')
     @login_required
     def play_stamp():
         with database() as db:
             best = games.stamp_best(db, g.user['id'])
-        return render_template('stamp.html', best=best, seconds=games.STAMP_SECONDS)
+            have = unlocks.unlocked(db, g.user['id'])
+            title = titles.chosen_title(db, g.user['id']) or next(
+                (item for item in titles.board(db, g.user['id']) if item['done'] and item['seen']), None)
+        needs = {item[0]: unlocks.need_text(item[3]) for item in unlocks.ITEMS}
+        modes = {key: dict(mode, open=games.mode_open(have, key), need=needs.get(mode['unlock'], ''))
+                 for key, mode in games.MODES.items()}
+        styles = [dict(key=key, name=name, open=unlock is None or unlock in have, need=needs.get(unlock, ''))
+                  for key, name, unlock in games.STYLES]
+        styles.append(dict(key='title', name=title['name'] if title else '称号', open=bool(title) and 'style:title' in have,
+                           need=needs['style:title'], color=title['color'] if title else None))
+        return render_template('stamp.html', best=best, modes=modes, styles=styles)
 
     @app.post('/play/stamp/start')
     @login_required
     def start_stamp():
+        mode = request.form.get('mode', 'normal')
         try:
-            run = games.start_stamp(app.config['DATABASE'], g.user['id'])
+            run = games.start_stamp(app.config['DATABASE'], g.user['id'], mode)
         except InvalidAction as error:
             return json_error(error)
-        return jsonify(run=run, finish=url_for('finish_stamp', run_id=run))
+        return jsonify(run=run, finish=url_for('finish_stamp', run_id=run), mode=mode, **games.MODES[mode])
 
     @app.post('/play/stamp/<int:run_id>')
     @login_required

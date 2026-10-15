@@ -283,9 +283,9 @@ html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="of
 .hanko.ghost{--c:var(--line-2);background:transparent;border-style:dashed;color:var(--faint)}
 .toast .hanko{font-size:11px}
 
-/* 游戏券数 */
-.ticket-count{display:inline-block;font:800 11px/18px var(--num);font-style:normal;min-width:18px;padding:0 5px;text-align:center;border-radius:9px;background:var(--yellow);color:var(--ink)}
-.tabbar .ticket-count{position:absolute;top:0;left:calc(50% + 6px)}
+/* 游戏角有新解锁 */
+.new-dot{display:inline-block;font:800 10.5px/18px var(--sans);font-style:normal;padding:0 6px;border-radius:9px;background:var(--yellow);color:var(--ink);transform:rotate(-6deg)}
+.tabbar .new-dot{position:absolute;top:0;left:calc(50% + 6px)}
 
 /* 名牌上的印章和全收集金边 */
 .plate-seal{position:absolute;top:14px;right:16px;z-index:1;font-size:13px}
@@ -301,7 +301,6 @@ html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="of
 .award-seal{display:grid;place-items:center;width:176px;height:176px;margin:6px 0 2px}
 .award-seal .hanko{font-size:44px;border-width:5px;border-radius:14px;box-shadow:0 10px 30px rgba(27,29,42,.12)}
 .award-seal .hanko.n1{font-size:60px}
-.award-tickets{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;background:var(--yellow);color:var(--ink);font:800 11.5px/20px var(--num);font-style:normal}
 .award-debut{position:absolute;right:-6px;top:-6px;font-size:22px;box-shadow:0 4px 12px rgba(27,29,42,.2)}
 .award-tier.gold,.case-label.gold{background:linear-gradient(135deg,#F2B700,#FFE07A 50%,#F2B700);box-shadow:0 0 0 2px var(--ink)}
 .award-kind b{color:#9C6B3F}

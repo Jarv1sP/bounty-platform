@@ -1,6 +1,6 @@
-/* 游戏角的两个小游戏。手感工具（音效、动画、数字滚动）来自 ui.js 的 window.bounty。
-   - 一笔画：拖着或一个点一个点地连，走完所有的线就提交给服务器检查。
-   - 盖章挑战：30 秒节奏游戏。完美判定时打击停顿 70ms、单子横向小震，连击每 10 下倍数涨一档。 */
+/* 游戏角的两个小游戏，随便玩，不花任何东西。手感工具（音效、动画、数字滚动）来自 ui.js 的 window.bounty。
+   - 一笔画：拖着或一个点一个点地连，走完所有的线就提交给服务器检查。固定关卡、每日一笔、随机一笔共用这一套。
+   - 盖章挑战：几十秒的节奏游戏。完美判定时打击停顿 70ms、单子横向小震，连击每 10 下倍数涨一档。 */
 (() => {
   const feel = window.bounty || {play() { return null; }, sfx() {}, toast() {}, countTo(el, to) { el.textContent = to; return Promise.resolve(); }, motionOn: () => false, A: 'ease', B: 'ease', C: 'ease', D: 'ease'};
   const csrf = () => document.querySelector('meta[name=csrf-token]')?.content || '';
@@ -14,15 +14,6 @@
     if (!response.ok) throw new Error(data.error || '出了点问题，稍后再试');
     return data;
   }
-  function spendTicket() {
-    document.querySelectorAll('[data-tickets], .ticket-count').forEach(el => {
-      const left = Math.max(0, Number(el.textContent) - 1);
-      el.textContent = left;
-      if (!left && el.classList.contains('ticket-count')) { el.remove(); return; }
-      feel.play(el, [{transform: 'scale(1.5)'}, {transform: 'none'}], {duration: 260, easing: feel.B});
-    });
-  }
-
   /* ================= 一笔画 ================= */
   const board = document.querySelector('[data-board]');
   if (board) lines();
@@ -183,32 +174,31 @@
       solvedBox.hidden = false;
       document.querySelector('.lvl.now')?.classList.add('solved');
       const count = document.querySelector('.level-side .sec span');
-      if (count) count.textContent = `${result.solved} / ${result.total}`;
+      if (count) count.textContent = `画完 ${result.solved} / ${result.total}`;
       const actions = solvedBox.querySelector('[data-solved-actions]');
       const text = solvedBox.querySelector('[data-solved-text]');
-      const tickets = Number(document.querySelector('[data-tickets]')?.textContent || 0);
-      text.textContent = result.solved === result.total ? `全部 ${result.total} 关都画完了！` : `一笔走完 ${edges.length} 条线。已经通关 ${result.solved} / ${result.total} 关。`;
+      if (level.kind === 'daily') {
+        document.querySelector('[data-daily-count]')?.replaceChildren(String(result.daily));
+        text.textContent = result.first ? `今天你是第 ${result.daily} 个画出来的。明天换新题。` : `又画了一遍。今天全队 ${result.daily} 人画出来了。`;
+      } else if (level.kind === 'random') {
+        text.textContent = `一笔走完 ${edges.length} 条线。`;
+      } else {
+        text.textContent = result.solved === result.total ? `全部 ${result.total} 关都画完了！` : `一笔走完 ${edges.length} 条线。已经画完 ${result.solved} / ${result.total} 关。`;
+      }
       let html = '';
-      if (result.next) html += `<a class="btn" href="${result.next}">下一关</a>`;
-      else if (result.can_unlock) html += tickets ? `<button type="button" class="btn" data-unlock>用 1 张券解锁第 ${level.level + 1} 关</button>`
-        : '<a class="btn btn-line" href="/">券用完了，去接个任务</a>';
-      html += `<button type="button" class="btn btn-line" data-replay>再画一次</button>`;
+      if (result.next) html += `<a class="btn" href="${result.next}">${level.kind === 'random' ? '再来一题' : '下一关'}</a>`;
+      html += '<button type="button" class="btn btn-line" data-replay>再画一次</button>';
       actions.innerHTML = html;
       if (result.titles?.length) actions.insertAdjacentHTML('beforebegin', `<div class="solved-titles">${result.titles.map(t => `${hanko(t)}<span>解锁称号「${esc(t.name)}」</span>`).join('')}</div>`);
       feel.play(solvedBox.querySelector('.solved-stamp'), [{transform: 'scale(2.4) rotate(-24deg)', opacity: 0}, {transform: 'scale(.92) rotate(-8deg)', opacity: 1, offset: .6}, {transform: 'rotate(-8deg)'}], {duration: 420, easing: feel.D});
       feel.play(solvedBox, [{opacity: 0, transform: 'translateY(12px)'}, {opacity: 1, transform: 'none'}], {duration: 320, easing: feel.C});
       setTimeout(() => feel.sfx('stamp'), 200);
-      actions.querySelector('[data-replay]').addEventListener('click', () => { solvedBox.hidden = true; board.classList.remove('cleared'); done = false; reset(); });
-      actions.querySelector('[data-unlock]')?.addEventListener('click', async event => {
-        event.currentTarget.disabled = true;
-        try {
-          const data = await post(level.unlock);
-          spendTicket();
-          setTimeout(() => location.assign(data.url), feel.motionOn() ? 300 : 0);
-        } catch (error) {
-          event.currentTarget.disabled = false;
-          feel.toast(`<span>${esc(error.message)}</span>`);
-        }
+      actions.querySelector('[data-replay]').addEventListener('click', () => {
+        solvedBox.hidden = true;
+        solvedBox.querySelector('.solved-titles')?.remove();
+        board.classList.remove('cleared');
+        done = false;
+        reset();
       });
     }
     paint();
@@ -218,7 +208,9 @@
   const stage = document.querySelector('[data-stamp-game]');
   if (stage) stampGame();
   function stampGame() {
-    const SECONDS = Number(stage.dataset.seconds) || 30;
+    let SECONDS = 30;
+    let cfg = {speed: 1, urgent: 0.18, void: 0.15};
+    let maxSlips = 72;
     const belt = stage.querySelector('[data-belt]');
     const stamper = stage.querySelector('[data-stamper]');
     const judge = stage.querySelector('[data-judge]');
@@ -243,18 +235,47 @@
     const scale = () => Math.max(0.6, Math.min(1.2, width() / 900));
     const mult = () => Math.min(3, 1 + Math.floor(combo / 10) * 0.5);
 
+    // 玩法和印章样式：玩法每局开始时交给服务器，印章只是好看，记在这台设备上
+    const modeInput = () => stage.querySelector('input[name=mode]:checked');
+    const styleInput = () => stage.querySelector('input[name=style]:checked');
+    try {
+      const saved = localStorage.getItem('bounty-stamp-style');
+      const input = saved && stage.querySelector(`input[name=style][value="${saved}"]:not(:disabled)`);
+      if (input) input.checked = true;
+    } catch { /* 隐私模式下不记 */ }
+    function paintStyle() {
+      const input = styleInput();
+      const head = stamper.querySelector('.stamper-head i');
+      head.className = `face-${input.value}`;
+      head.style.setProperty('--c', input.dataset.color || '');
+      head.innerHTML = input.value === 'dlm' ? stage.querySelector('.face-dlm').innerHTML : esc(input.dataset.text);
+      try { localStorage.setItem('bounty-stamp-style', input.value); } catch { /* 隐私模式下不记 */ }
+    }
+    function paintMode() {
+      const label = modeInput().closest('.pick-mode');
+      document.querySelector('[data-mode-label]').textContent = label.dataset.name;
+      document.querySelector('[data-best]').textContent = label.dataset.bestScore;
+      document.querySelector('[data-best-combo]').textContent = label.dataset.bestCombo;
+    }
+    stage.addEventListener('change', event => {
+      if (event.target.name === 'style') { paintStyle(); feel.sfx('tap'); }
+      if (event.target.name === 'mode') { paintMode(); feel.sfx('tap'); }
+    });
+    paintStyle();
+
     async function begin() {
       if (state === 'starting' || state === 'playing') return;
       state = 'starting';
       try {
-        const data = await post(stage.dataset.start);
-        run = data;
+        run = await post(stage.dataset.start, {mode: modeInput().value});
       } catch (error) {
         state = 'idle';
         feel.toast(`<span>${esc(error.message)}</span>`);
         return;
       }
-      spendTicket();
+      SECONDS = run.seconds;
+      cfg = run;
+      maxSlips = Math.floor(SECONDS * 2.4);
       cover.hidden = true;
       result.hidden = true;
       slips.forEach(s => s.el.remove());
@@ -278,15 +299,17 @@
     function spawn() {
       const t = clock / SECONDS;
       const roll = Math.random();
-      const kind = clock > 4 && roll < 0.15 ? 'void' : roll < 0.33 ? 'urgent' : 'normal';
+      const kind = clock > 4 && roll < cfg.void ? 'void' : roll < cfg.void + cfg.urgent ? 'urgent' : 'normal';
       const el = document.createElement('div');
       el.className = `slip ${kind}`;
       el.innerHTML = `<b>${kind === 'void' ? '退回' : kind === 'urgent' ? '加急' : '任务单'}</b><span>${WORDS[spawned % WORDS.length]}</span><i class="slip-target"></i>`;
       belt.append(el);
-      const speed = (250 + 270 * t) * scale() * (kind === 'urgent' ? 1.45 : 1);
+      const speed = (250 + 270 * t) * cfg.speed * scale() * (kind === 'urgent' ? 1.45 : 1);
       slips.push({el, kind, x: width() + 90, speed, stamped: false, passed: false, half: el.offsetWidth / 2});
       spawned += 1;
-      nextSpawn = clock + Math.max(0.5, 1.15 - 0.6 * t) * (0.8 + Math.random() * 0.4);
+      // 期末周：时不时一口气来两三张
+      const gap = Math.max(0.5, 1.15 - 0.6 * t) / cfg.speed * (0.8 + Math.random() * 0.4);
+      nextSpawn = clock + (run.mode === 'finals' && Math.random() < 0.3 ? Math.max(0.42, gap * 0.45) : gap);
     }
 
     function loop(now) {
@@ -294,7 +317,7 @@
       last = now;
       if (now >= freezeUntil) {
         clock += dt;
-        if (clock >= nextSpawn && clock < SECONDS - 0.8 && spawned < 70) spawn();
+        if (clock >= nextSpawn && clock < SECONDS - 0.8 && spawned < maxSlips) spawn();
         const center = width() / 2;
         slips.forEach(slip => {
           slip.x -= slip.speed * dt;
@@ -327,7 +350,11 @@
       const mark = document.createElement('i');
       mark.className = 'slip-mark';
       mark.style.left = `${slip.half + (center - slip.x)}px`;
-      mark.textContent = '通过';
+      const style = styleInput();
+      mark.className = `slip-mark face-${style.value}`;
+      mark.style.setProperty('--c', style.dataset.color || '');
+      if (style.value === 'dlm') mark.innerHTML = stage.querySelector('.face-dlm').innerHTML;
+      else mark.textContent = style.dataset.text;
       slip.el.append(mark);
       if (slip.kind === 'void') {
         slip.el.classList.add('wrong');
@@ -420,6 +447,11 @@
         document.querySelector('[data-best]').textContent = data.best.score;
         document.querySelector('[data-best-combo]').textContent = data.best.combo;
         if (data.record) { label.textContent = '新纪录！'; label.classList.add('gold'); }
+        else label.classList.remove('gold');
+        result.querySelector('[data-result-nudge]').hidden = data.recent < 5;
+        const pick = modeInput().closest('.pick-mode');
+        pick.dataset.bestScore = data.best.score;
+        pick.dataset.bestCombo = data.best.combo;
         titlesBox.innerHTML = (data.titles || []).map(t => `<div class="solved-titles">${hanko(t)}<span>解锁称号「${esc(t.name)}」</span></div>`).join('');
       } catch (error) {
         label.textContent = '没记上分';
@@ -434,10 +466,12 @@
     }
 
     stage.querySelector('[data-go]')?.addEventListener('click', event => { event.stopPropagation(); begin(); });
-    stage.querySelector('[data-again]').addEventListener('click', event => {
+    stage.querySelector('[data-again]').addEventListener('click', event => { event.stopPropagation(); begin(); });
+    stage.querySelector('[data-change]').addEventListener('click', event => {
       event.stopPropagation();
-      if (Number(document.querySelector('[data-tickets]').textContent) < 1) { feel.toast('<span>券用完了，去接个任务吧</span>'); return; }
-      begin();
+      result.hidden = true;
+      cover.hidden = false;
+      feel.play(cover.querySelector('.cover-card'), [{transform: 'translateY(10px)', opacity: 0}, {transform: 'none', opacity: 1}], {duration: 300, easing: feel.C});
     });
     stage.addEventListener('pointerdown', event => {
       if (state !== 'playing' || event.target.closest('a,button')) return;

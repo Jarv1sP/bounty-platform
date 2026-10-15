@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from .db import connect, initialize
 from .service import act, clap, create_task, set_interests
+from . import blocks
 
 DEMO_USERS = ('发布者', '认领人', '其他成员', '陈默', '王瑶', '周然', '林夕')
 DEMO_PASSWORD = 'demo12345'
@@ -46,6 +47,13 @@ SEEN = ('整理上周周赛的错题', '补全 50 道题的样例解释', '连�
 INTERESTS = {'认领人': '图论 PyTorch', '王瑶': '数据 论文'}
 # 发布了一周还没人接的冷门任务（其中一个后来被认领人接下并完成，带冷门加成）
 COLD = {'整理 DP 专题题单': 8, '整理历年校赛题目归档': 6, '补全 50 道题的样例解释': 9}
+# 挂在名牌上的积木作品（只用他们的勋章已经解锁的零件和颜色）
+BUILDS = {
+    '陈默': ('评测机', 'paper', [['quarter', 'red', 0, 12, 0], ['sq-2', 'ink', 10, 2, 0], ['dot-s', 'ink', 4, 4, 0], ['dot-s', 'ink', 5, 5, 0], ['bar-3', 'ink', 6, 9, 0],
+                                ['bar-3', 'red', 9, 11, 1], ['dot-s', 'ink', 13, 13, 0], ['medal-major-urgent', 'white', 12, 6, 0]]),
+    '周然': ('夜里的实验室', 'ink', [['quarter', 'blue', 12, 12, 1], ['dot-s', 'white', 2, 2, 0], ['dot-s', 'white', 6, 4, 0], ['dot-s', 'white', 10, 1, 0],
+                                   ['sq-2', 'white', 12, 2, 0], ['bar-3', 'white', 2, 13, 0], ['sq-2', 'blue', 5, 10, 0], ['medal-major-normal', 'white', 1, 7, 0]]),
+}
 CLAPS = {'写周会纪要模板': ('王瑶', '陈默'), '清洗去年比赛的提交记录': ('陈默', '周然', '林夕'),
          '修好评测机的内存统计': ('认领人', '王瑶', '周然', '林夕'), '复现 GCN 的 baseline': ('陈默', '王瑶')}
 
@@ -87,4 +95,6 @@ def seed_demo(path):
                        [(title,) for title in SEEN])
     for name, tags in INTERESTS.items():
         set_interests(path, U[name], tags)
+    for name, (title, bg, parts) in BUILDS.items():
+        blocks.show(path, U[name], blocks.save(path, U[name], None, title, bg, parts))
     return len(TASKS)

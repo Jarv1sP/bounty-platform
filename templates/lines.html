@@ -1,18 +1,19 @@
 {% extends 'base.html' %}
 {% from 'components/icon.html' import icon %}
-{% block title %}一笔画 · 第 {{ level }} 关 · 搭把手{% endblock %}
+{% set heading = {'level': '第 ' ~ value ~ ' 关 · ' ~ name, 'daily': name, 'random': '随机一笔 · 第 ' ~ value ~ ' 号'}[kind] %}
+{% block title %}一笔画 · {{ heading }} · 搭把手{% endblock %}
 {% block body_class %}page-game{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='games.js') }}" defer></script>{% endblock %}
 {% block content %}
 <div class="wrap game-page">
   <header class="game-head">
     <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
-    <h1>一笔画<span>第 {{ level }} 关 · {{ name }}</span></h1>
-    <span class="tickets-chip" title="游戏券">{{ icon('ticket') }}<b class="num" data-tickets>{{ tickets }}</b></span>
+    <h1>一笔画<span>{{ heading }}</span></h1>
   </header>
   <div class="lines-layout">
-    <section class="board-wrap panel" aria-label="第 {{ level }} 关：{{ name }}">
-      <svg class="board" viewBox="-8 -8 116 116" data-board data-level="{{ level }}" data-solve="{{ url_for('solve_lines', level=level) }}" role="img"
+    <section class="board-wrap panel" aria-label="{{ heading }}">
+      {% if kind == 'daily' %}<p class="board-note">{{ icon('sun') }}全队今天都是这一题{% if daily.done %}，你已经画出来了，可以再画一次{% endif %} · 今天 <b class="num" data-daily-count>{{ daily.count }}</b> 人画出来了</p>{% endif %}
+      <svg class="board" viewBox="-8 -8 116 116" data-board data-solve="{{ solve }}" role="img"
            aria-label="{{ board.nodes|length }} 个点、{{ board.edges|length }} 条线，用一笔走完所有的线">
         <g data-edges>{% for a, b in board.edges %}<line class="edge" data-edge="{{ loop.index0 }}" x1="{{ board.nodes[a][0] }}" y1="{{ board.nodes[a][1] }}" x2="{{ board.nodes[b][0] }}" y2="{{ board.nodes[b][1] }}"/>{% endfor %}</g>
         <g data-trail></g>
@@ -33,13 +34,18 @@
       </div>
     </section>
     <aside class="level-side panel">
-      <h2 class="sec">关卡<span>{{ state.solved|length }} / {{ state.total }}</span></h2>
+      <h2 class="sec">关卡<span>画完 {{ state.solved|length }} / {{ state.total }}</span></h2>
       <ol class="levels">
         {% for item in levels %}{% set n = loop.index %}
-        <li>{% if n <= state.unlocked %}<a class="lvl{{ ' solved' if n in state.solved }}{{ ' now' if n == level }}" href="{{ url_for('play_lines', level=n) }}" aria-label="第 {{ n }} 关 {{ item[0] }}{{ '，已通关' if n in state.solved }}">{{ n }}</a>
-        {% else %}<span class="lvl locked" aria-label="第 {{ n }} 关，还没解锁">{{ n }}</span>{% endif %}</li>
+        <li>{% if n in state.open %}<a class="lvl{{ ' solved' if n in state.solved }}{{ ' now' if kind == 'level' and n == value }}" href="{{ url_for('play_lines', level=n) }}" aria-label="第 {{ n }} 关 {{ item[0] }}{{ '，已画完' if n in state.solved }}">{{ n }}</a>
+        {% else %}<span class="lvl locked" title="画完第 {{ n - 1 }} 关就开" aria-label="第 {{ n }} 关，画完第 {{ n - 1 }} 关就开">{{ icon('lock') }}</span>{% endif %}</li>
         {% endfor %}
       </ol>
+      <div class="side-modes">
+        <a class="mode{{ ' now' if kind == 'daily' }}" href="{{ url_for('play_daily') }}">{{ icon('sun') }}<span><b>每日一笔</b><small>{{ '今天画过了' if daily.done else '全队同一题，每天换' }}</small></span></a>
+        {% if state.random %}<a class="mode{{ ' now' if kind == 'random' }}" href="{{ url_for('play_random') }}">{{ icon('dice') }}<span><b>随机一笔</b><small>无限出题</small></span></a>
+        {% else %}<span class="mode locked">{{ icon('lock') }}<span><b>随机一笔</b><small>{{ random_need }}后开放</small></span></span>{% endif %}
+      </div>
       <div class="how-to">
         <p><b>怎么玩</b>按住一个点，拖到相连的点上，就画下这条线；一直不松手画完所有的线。也可以一个点一个点地点。走错了就撤销。</p>
         <p><b>卡住了？</b>连着奇数条线的点最多只有两个，要从其中一个出发、在另一个结束。点「提示」会把它们标出来。</p>
@@ -47,5 +53,5 @@
     </aside>
   </div>
 </div>
-<script type="application/json" id="level-data">{{ dict(nodes=board.nodes, edges=board.edges, level=level, unlock=url_for('unlock_lines'))|tojson }}</script>
+<script type="application/json" id="level-data">{{ dict(nodes=board.nodes, edges=board.edges, kind=kind, value=value)|tojson }}</script>
 {% endblock %}

@@ -1,10 +1,10 @@
 {#- 点动成线，线动成面：轻量 = 一个墨点；常规 = 一串白点并成延伸到内圈的白线；重要 = 墨线 + 白条并成填满半边的白面。
     不急用冷色，加急用暖色并在右上角挂「急」。ghost = 未获得的灰色剪影。元素带 m-a / --i，动画按顺序把读法演一遍。 -#}
-{% macro medal(key, cls='', ghost=false, label=none) -%}
+{% macro medal(key, cls='', ghost=false, label=none, box=none) -%}
 {%- set parts = key.split('-') -%}
 {%- set w = '#D7DAE0' if ghost else '#fff' -%}
 {%- set ink = '#C4C8D0' if ghost else '#1B1D2A' -%}
-<svg class="medal{{ ' ghost' if ghost }}{{ ' ' ~ cls if cls }}" viewBox="0 0 100 100" {% if label %}role="img" aria-label="{{ label }}"{% else %}aria-hidden="true"{% endif %}>
+<svg class="medal{{ ' ghost' if ghost }}{{ ' ' ~ cls if cls }}" viewBox="0 0 100 100" {% if box %}x="{{ box[0] }}" y="{{ box[1] }}" width="{{ box[2] }}" height="{{ box[2] }}" {% endif %}{% if label %}role="img" aria-label="{{ label }}"{% else %}aria-hidden="true"{% endif %}>
 {%- if ghost -%}
 <circle cx="50" cy="50" r="50" fill="#F2F3F5"/><circle cx="50" cy="50" r="48.8" fill="none" stroke="#B4B7C1" stroke-width="1.4" stroke-dasharray="4 4"/>
 {%- else -%}

@@ -65,25 +65,33 @@ CREATE TABLE IF NOT EXISTS titles_seen (
  seen_at TEXT NOT NULL,
  PRIMARY KEY(user_id,key)
 );
-CREATE TABLE IF NOT EXISTS tickets (
- id INTEGER PRIMARY KEY,
- user_id INTEGER NOT NULL REFERENCES users(id),
- delta INTEGER NOT NULL,
- reason TEXT NOT NULL,
- task_id INTEGER REFERENCES tasks(id),
- ref TEXT,
- created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tickets_by_user ON tickets(user_id);
 CREATE TABLE IF NOT EXISTS game_runs (
  id INTEGER PRIMARY KEY,
  user_id INTEGER NOT NULL REFERENCES users(id),
  game TEXT NOT NULL,
+ mode TEXT NOT NULL DEFAULT 'normal',
  started_at TEXT NOT NULL,
  finished_at TEXT,
  score INTEGER,
  combo INTEGER
 );
+CREATE TABLE IF NOT EXISTS daily_solved (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ day TEXT NOT NULL,
+ solved_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,day)
+);
+CREATE TABLE IF NOT EXISTS builds (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ name TEXT NOT NULL,
+ bg TEXT NOT NULL,
+ parts TEXT NOT NULL,
+ shown INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS builds_by_user ON builds(user_id);
 CREATE TABLE IF NOT EXISTS lines_solved (
  user_id INTEGER NOT NULL REFERENCES users(id),
  level INTEGER NOT NULL,
@@ -91,9 +99,7 @@ CREATE TABLE IF NOT EXISTS lines_solved (
  PRIMARY KEY(user_id,level)
 );
 '''
-# 每验收一个任务发几张游戏券（冷门任务再 +1）；新账号先送几张试玩
-TICKETS = {'light': 1, 'standard': 2, 'major': 3}
-STARTER_TICKETS = 2
+
 
 
 @contextmanager
@@ -137,6 +143,11 @@ def initialize(path):
                 raise RuntimeError('数据库迁移失败：存在无效归属。')
             db.commit()
             db.execute('PRAGMA foreign_keys = ON')
+        tables = {row['name'] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        # 早期版本的「游戏券」账本：游戏角现在改成用勋章解锁，这张表只是从勋章推出来的，直接去掉
+        db.execute('DROP TABLE IF EXISTS tickets')
+        if 'game_runs' in tables and 'mode' not in {row['name'] for row in db.execute('PRAGMA table_info(game_runs)')}:
+            db.execute("ALTER TABLE game_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'normal'")
         db.executescript(SCHEMA)
         if 'seen_at' not in {row['name'] for row in db.execute('PRAGMA table_info(honors)')}:
             db.execute('ALTER TABLE honors ADD COLUMN seen_at TEXT')
@@ -150,6 +161,8 @@ def initialize(path):
         user_columns = {row['name'] for row in db.execute('PRAGMA table_info(users)')}
         if 'title_key' not in user_columns:
             db.execute('ALTER TABLE users ADD COLUMN title_key TEXT')
+        if 'play_seen' not in user_columns:   # 上次进游戏角时已经解锁了哪些：多出来的在导航上标「新」
+            db.execute("ALTER TABLE users ADD COLUMN play_seen TEXT NOT NULL DEFAULT ''")
         if 'notes_seen_at' not in user_columns:
             # 老用户从现在开始收纸条，不把以前的鼓掌一股脑翻出来
             db.execute('ALTER TABLE users ADD COLUMN notes_seen_at TEXT')
@@ -161,9 +174,3 @@ def initialize(path):
             SELECT t.id,t.assignee_id,t.importance || '-' || t.urgency,
                    COALESCE((SELECT MAX(created_at) FROM events WHERE task_id=t.id AND kind='accept'),t.created_at)
             FROM tasks t WHERE t.status='done' AND t.assignee_id IS NOT NULL''')
-        # 每枚勋章都对应一笔游戏券；上线这个功能之前拿到的勋章也补上
-        db.execute(f'''INSERT INTO tickets (user_id,delta,reason,task_id,created_at)
-            SELECT h.user_id, CASE t.importance {' '.join(f"WHEN '{k}' THEN {v}" for k, v in TICKETS.items())} END + t.cold,
-                   'task', h.task_id, h.awarded_at
-            FROM honors h JOIN tasks t ON t.id=h.task_id
-            WHERE NOT EXISTS (SELECT 1 FROM tickets k WHERE k.reason='task' AND k.task_id=h.task_id)''')

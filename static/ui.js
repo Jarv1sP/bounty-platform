@@ -164,10 +164,13 @@
   }
 
   /* ---------- 小部件 ---------- */
-  function toast(html) {
+  // key：同一类提示只留最新的一条（比如连着点几个没解锁的零件）
+  function toast(html, key) {
     const shelf = document.querySelector('.toasts');
     if (!shelf) return;
+    if (key) shelf.querySelectorAll(`[data-key="${key}"]`).forEach(old => old.remove());
     const item = document.createElement('div');
+    if (key) item.dataset.key = key;
     item.className = 'toast';
     item.innerHTML = html;
     shelf.append(item);
@@ -297,7 +300,7 @@
     // 先一枚枚发勋章，再一个个盖称号
     const queue = [...awards.map(award => ({type: 'medal', ...award})), ...fresh.map(title => ({type: 'title', ...title}))];
     const xpTotal = awards.reduce((sum, award) => sum + award.xp, 0);
-    const ticketTotal = awards.reduce((sum, award) => sum + award.tickets, 0);
+    const unlocks = data.unlocks || [];
     const leveled = awards.length && data.after.level > data.before.level;
     let index = 0;
     let skipped = !motionOn();
@@ -326,7 +329,8 @@
         <h2 class="award-name" id="award-title">${award.name}</h2>
         <p class="award-kind">「${escapeHtml(award.title)}」 · ${escapeHtml(award.owner)} 验收${award.bonus ? ` · <b>冷门 +${award.bonus}</b>` : ''}</p>
         ${praise ? `<p class="award-praise">${escapeHtml(praise)}<cite>— ${escapeHtml(award.owner)}</cite></p>` : ''}
-        <div class="award-meter" data-meter><span class="lv num" data-lv>Lv.${data.before.level}</span><span class="bar" style="--fill:var(--yellow)"><i style="width:${data.before.percent}%"></i></span><em><span data-xp>+0</span> 经验<i class="award-tickets">+<span data-tk>0</span> 张券</i></em></div>
+        <div class="award-meter" data-meter><span class="lv num" data-lv>Lv.${data.before.level}</span><span class="bar" style="--fill:var(--yellow)"><i style="width:${data.before.percent}%"></i></span><em><span data-xp>+0</span> 经验</em></div>
+        ${award.opens?.length ? `<p class="award-opens"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="5.5"/><path d="M8 10.5v4M6 12.5h4"/></svg><span>游戏角解锁：${award.opens.map(escapeHtml).join('、')}</span></p>` : ''}
         ${counter()}`;
       label.textContent = summary(final);
       featureButton.textContent = '放上名牌';
@@ -364,6 +368,7 @@
       const meter = show.querySelector('[data-meter]');
       const praise = show.querySelector('.award-praise');
       const seal = show.querySelector('.award-debut');
+      const opens = show.querySelector('.award-opens');
       // 总长按稀有度分档：普通 ≈0.8s，新种类 ≈1.5s，集齐一行 ≈3s，全收集再长一点
       const hold = award.tier === 'all' ? 1400 : {plain: 0, new: 400, row: 900}[award.tier];
       if (skipped) {
@@ -371,7 +376,7 @@
         finishMeter(meter, award, true);
         return;
       }
-      [name, tierTag, praise, meter, seal].forEach(el => el && (el.style.opacity = 0));
+      [name, tierTag, praise, meter, seal, opens].forEach(el => el && (el.style.opacity = 0));
       // 1) 先停在灰色虚线剪影，让人看清楚"要变成什么"
       svg.style.filter = 'grayscale(1) opacity(.35)';
       later(() => {
@@ -403,6 +408,11 @@
         meter.style.opacity = 1;
         finishMeter(meter, award, false);
       }, 860 + hold);
+      if (opens) later(() => {
+        opens.style.opacity = 1;
+        play(opens, [{opacity: 0, transform: 'translateY(6px) scale(.96)'}, {opacity: 1, transform: 'none'}], {duration: 320, easing: B});
+        sfx('tap');
+      }, 1300 + hold);
     }
 
     // 称号：印章从高处砸下来，停一下，横向小震
@@ -432,14 +442,11 @@
 
     function finishMeter(meter, award, instant) {
       const xp = meter.querySelector('[data-xp]');
-      const tk = meter.querySelector('[data-tk]');
       const bar = meter.querySelector('.bar i');
       const lv = meter.querySelector('[data-lv]');
       const last = index === awards.length - 1;
       const target = last ? data.after : null;
       const gained = awards.slice(0, index + 1).reduce((sum, a) => sum + a.xp, 0);
-      const tickets = awards.slice(0, index + 1).reduce((sum, a) => sum + a.tickets, 0);
-      tk.textContent = tickets;
       if (instant) {
         xp.textContent = `+${gained}`;
         if (last) applyLevel(meter, lv, bar, true);
@@ -534,8 +541,12 @@
       mailbox?.classList.remove('has-mail');
       mailbox?.querySelector('b')?.remove();
       if (awards.length) {
-        toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验 · +${ticketTotal} 张游戏券${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
-        document.querySelectorAll('.ticket-count').forEach(chip => { chip.textContent = Number(chip.textContent) + ticketTotal; });
+        toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
+        // 这批勋章让游戏角多了东西（积木颜色、零件、玩法）：再报一声
+        if (unlocks.length) setTimeout(() => {
+          toast(`<span>游戏角解锁：${unlocks.slice(0, 2).map(escapeHtml).join('、')}${unlocks.length > 2 ? ` 等 ${unlocks.length} 样` : ''}</span>`);
+          sfx('set');
+        }, motionOn() ? 900 : 0);
       } else {
         toast(`<span class="hanko n${fresh[0].name.length}" style="--c:${fresh[0].color}"><i>${escapeHtml(fresh[0].name)}</i></span><span>解锁了${fresh.length > 1 ? ` ${fresh.length} 个` : ''}称号</span>`);
       }

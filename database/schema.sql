@@ -2,7 +2,8 @@
 -- Columns that bounty/db.py adds to older databases on startup:
 --   tasks.project TEXT, tasks.cold INTEGER NOT NULL DEFAULT 0
 --   honors.bonus INTEGER NOT NULL DEFAULT 0
---   users.title_key TEXT, users.notes_seen_at TEXT
+--   users.title_key TEXT, users.notes_seen_at TEXT, users.play_seen TEXT NOT NULL DEFAULT ''
+--   game_runs.mode TEXT NOT NULL DEFAULT 'normal'
 
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, password TEXT NOT NULL
@@ -65,25 +66,33 @@ CREATE TABLE IF NOT EXISTS titles_seen (
  seen_at TEXT NOT NULL,
  PRIMARY KEY(user_id,key)
 );
-CREATE TABLE IF NOT EXISTS tickets (
- id INTEGER PRIMARY KEY,
- user_id INTEGER NOT NULL REFERENCES users(id),
- delta INTEGER NOT NULL,
- reason TEXT NOT NULL,
- task_id INTEGER REFERENCES tasks(id),
- ref TEXT,
- created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS tickets_by_user ON tickets(user_id);
 CREATE TABLE IF NOT EXISTS game_runs (
  id INTEGER PRIMARY KEY,
  user_id INTEGER NOT NULL REFERENCES users(id),
  game TEXT NOT NULL,
+ mode TEXT NOT NULL DEFAULT 'normal',
  started_at TEXT NOT NULL,
  finished_at TEXT,
  score INTEGER,
  combo INTEGER
 );
+CREATE TABLE IF NOT EXISTS daily_solved (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ day TEXT NOT NULL,
+ solved_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,day)
+);
+CREATE TABLE IF NOT EXISTS builds (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ name TEXT NOT NULL,
+ bg TEXT NOT NULL,
+ parts TEXT NOT NULL,
+ shown INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS builds_by_user ON builds(user_id);
 CREATE TABLE IF NOT EXISTS lines_solved (
  user_id INTEGER NOT NULL REFERENCES users(id),
  level INTEGER NOT NULL,

@@ -1,4 +1,5 @@
 {% from 'components/medal.html' import medal %}
+{% from 'components/blocks.html' import build_svg %}
 {% macro logo() -%}
 <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="14" cy="14" r="10" fill="#E54465"/><rect x="20" y="20" width="16" height="16" fill="#2866B1"/><path d="M4 36A16 16 0 0 1 20 20V36Z" fill="#F2B700"/></svg>
 {%- endmacro %}
@@ -20,17 +21,19 @@
 <span class="hanko n{{ title.name|length }}{{ ' ' ~ cls if cls }}" style="--c:{{ title.color }}"><i>{{ title.name }}</i></span>
 {%- endmacro %}
 
-{# 名牌：背景取第一枚展示勋章的颜色，装饰图形就是点、线、面；挂了称号就在右上角盖一个印章；集齐六种勋章换金边 #}
-{% macro plate(name, level, featured, size='', title=none, complete=false) -%}
+{# 名牌：背景取第一枚展示勋章的颜色，装饰图形就是点、线、面；挂了称号就在右上角盖一个印章；集齐六种勋章换金边；
+   挂了积木作品，右边的装饰就换成自己搭的那件 #}
+{% macro plate(name, level, featured, size='', title=none, complete=false, build=none) -%}
 {%- set bg = medals[featured[0]].hue if featured else '#9A9DA8' -%}
 <div class="plate{{ ' ' ~ size if size }}{{ ' complete' if complete }}" style="--plate:{{ bg }}">
   {% if title %}{{ hanko(title, 'plate-seal') }}{% endif %}
   {% if complete %}<span class="plate-crown">全收集</span>{% endif %}
+  {% if build %}<span class="plate-build" title="{{ name }} 搭的「{{ build.name }}」">{{ build_svg(build) }}</span>{% else %}
   <svg class="plate-art" viewBox="0 0 280 180" preserveAspectRatio="xMaxYMax meet" aria-hidden="true">
     <path d="M280 180H150A130 130 0 0 1 280 50Z" fill="{{ '#2866B1' if bg == '#F2B700' else '#F2B700' }}"/>
     <circle cx="168" cy="34" r="3.4" fill="#fff"/><circle cx="180" cy="34" r="3.4" fill="#fff"/><circle cx="191" cy="34" r="3.4" fill="#fff"/>
     <path d="M198 34H246" stroke="#fff" stroke-width="6.8" stroke-linecap="round"/><circle cx="152" cy="34" r="7" fill="#1B1D2A"/>
-  </svg>
+  </svg>{% endif %}
   <div class="plate-head"><span class="plate-lv">Lv.{{ level.level }}</span><span class="plate-title">{{ level.name }}</span></div>
   <b class="plate-name">{{ name }}</b>
   <div class="plate-medals">{% for key in featured[:3] %}{{ medal(key, label=medals[key].name) }}{% endfor %}{% for _ in range(3 - featured[:3]|length) %}<i class="plate-slot"></i>{% endfor %}</div>

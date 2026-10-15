@@ -158,9 +158,22 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   wait("!document.querySelector('[data-solved]').hidden")
   with connect(app.config['DATABASE']) as db:
    assert db.execute('SELECT COUNT(*) FROM lines_solved').fetchone()[0]==1
+  # 积木：拿起一个方块放到板子上，存起来，挂到名牌上
+  nav('/play/blocks')
+  ev("document.querySelector('[data-part=\"sq-2\"]').click()")
+  box=ev("(()=>{const r=document.querySelector('[data-board]').getBoundingClientRect();return [r.x,r.y,r.width]})()")
+  for gx in (3,8):
+   call('Input.dispatchMouseEvent',{'type':'mousePressed','x':box[0]+box[2]*gx/16,'y':box[1]+box[2]*gx/16,'button':'left','clickCount':1})
+   call('Input.dispatchMouseEvent',{'type':'mouseReleased','x':box[0]+box[2]*gx/16,'y':box[1]+box[2]*gx/16,'button':'left','clickCount':1})
+  assert ev("document.querySelector('[data-count]').textContent")=='2'
+  ev("document.querySelector('[data-part=\"quarter\"]').click()")
+  wait("document.querySelector('.toast[data-key=locked]')")
+  click('[data-save-build]');wait("document.readyState==='complete' && !!document.querySelector('.work.now:not(.new)')")
+  click('[data-show-build]');wait("document.querySelector('[data-show-build]').getAttribute('aria-pressed')==='true'")
+  nav('/honors');assert ev("!!document.querySelector('.plate-build')")
   for width in (1440,390):
    call('Emulation.setDeviceMetricsOverride',{'width':width,'height':1150 if width==1440 else 1500,'deviceScaleFactor':1,'mobile':False})
-   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors'),('play','/play'),('lines','/play/lines'),('stamp','/play/stamp'),('recap','/recap')]:
+   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors'),('play','/play'),('blocks','/play/blocks'),('lines','/play/lines'),('stamp','/play/stamp'),('recap','/recap')]:
     nav(path);time.sleep(.5)
     assert ev('document.documentElement.scrollWidth<=innerWidth'),(name,width)
     shot('motion-'+name+('-desktop' if width==1440 else '-mobile'))
@@ -168,7 +181,7 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
    assert db.execute('SELECT COUNT(*) FROM honors').fetchone()[0]==1
    assert db.execute('SELECT COUNT(*) FROM featured_honors').fetchone()[0]==1
    assert [row[0] for row in db.execute('SELECT tag FROM interests')]==['测试']
-  print('PASS: live browser publish, claim, validation, return/resubmit, praise + accept, private one-time ceremony, medal case + inspector, nameplate, picks, live direction lane, task wall paging, motion opt-out, reduced motion, one-stroke game, 16 responsive views')
+  print('PASS: live browser publish, claim, validation, return/resubmit, praise + accept, private one-time ceremony, medal case + inspector, nameplate, picks, live direction lane, task wall paging, motion opt-out, reduced motion, one-stroke game, blocks build + nameplate, 18 responsive views')
   ws.close()
  finally:
   proc.terminate()
