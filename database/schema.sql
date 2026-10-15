@@ -2,7 +2,7 @@
 -- Columns that bounty/db.py adds to older databases on startup:
 --   tasks.project TEXT, tasks.cold INTEGER NOT NULL DEFAULT 0
 --   honors.bonus INTEGER NOT NULL DEFAULT 0
---   users.title_key TEXT, users.notes_seen_at TEXT, users.play_seen TEXT NOT NULL DEFAULT ''
+--   users.title_key TEXT, users.notes_seen_at TEXT, users.play_seen TEXT NOT NULL DEFAULT '', users.is_admin INTEGER NOT NULL DEFAULT 0
 --   game_runs.mode TEXT NOT NULL DEFAULT 'normal'
 
 CREATE TABLE IF NOT EXISTS users (
@@ -93,6 +93,13 @@ CREATE TABLE IF NOT EXISTS builds (
  updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS builds_by_user ON builds(user_id);
+CREATE TABLE IF NOT EXISTS org_tags (
+ name TEXT PRIMARY KEY,
+ note TEXT NOT NULL DEFAULT '',
+ position INTEGER NOT NULL DEFAULT 0,
+ created_by INTEGER REFERENCES users(id),
+ created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lines_solved (
  user_id INTEGER NOT NULL REFERENCES users(id),
  level INTEGER NOT NULL,

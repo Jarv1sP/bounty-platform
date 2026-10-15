@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   call('Emulation.setDeviceMetricsOverride',{'width':1440,'height':1100,'deviceScaleFactor':1,'mobile':False})
   login('发布者')
   nav('/tasks/new')
-  ev("document.querySelector('[name=title]').value='整理入门文档';document.querySelector('[name=description]').value='整理安装步骤和常见问题';document.querySelector('[name=requirements]').value='提交成果链接';document.querySelector('[name=tags]').value='文档 新人';document.querySelector('[name=importance][value=standard]').checked=true;document.querySelector('[name=urgency][value=normal]').checked=true")
+  ev("document.querySelector('[name=title]').value='整理入门文档';document.querySelector('[name=description]').value='整理安装步骤和常见问题';document.querySelector('[name=requirements]').value='提交成果链接';document.querySelector('[name=new_tags]').value='文档 新人';document.querySelector('[name=importance][value=standard]').checked=true;document.querySelector('[name=urgency][value=normal]').checked=true")
   ev('document.querySelector("[name=deadline]").value='+json.dumps(deadline[:16]))
   click('form.editor button[type=submit], form.editor button.primary')
   wait("location.pathname.startsWith('/tasks/') && !location.pathname.endsWith('/new')")

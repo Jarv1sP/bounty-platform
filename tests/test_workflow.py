@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from app import create_app
 from bounty.db import connect, initialize
-from bounty import blocks, discover, games, progress, titles, unlocks
+from bounty import blocks, discover, games, progress, tags, titles, unlocks
 from bounty.service import InvalidAction, act, clap, create_task, dismiss, parse_tags, set_interests
 from bounty.honors import MEDALS, medal_key
 
@@ -407,10 +407,13 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(past[0]['reasons'][0][0], 'skill')
             self.assertFalse(any(kind == 'interest' for pick in past for kind, _ in pick['reasons']))
             self.assertEqual(discover.past_tags(db, 2), [('数据', 1)])
-            options = {option['tag']: option for option in discover.directions(db, ['图论', '冷门方向'])}
-            self.assertTrue(options['图论']['chosen'])
-            self.assertEqual(options['图论']['example'], '讲一次图论')
-            self.assertEqual(options['冷门方向']['count'], 0)
+            # 方向条就是团队的标签表：起步标签带说明，发布者新写的「图论」排在最后
+            options = discover.directions(db, ['图论'])
+            self.assertEqual([option['tag'] for option in options][:6], ['实验', '数据', '论文', '代码', '讲解', '杂务'])
+            self.assertEqual(options[1]['note'], '造数据、清洗、标注')
+            graph_option = next(option for option in options if option['tag'] == '图论')
+            self.assertTrue(graph_option['chosen'])
+            self.assertEqual((graph_option['example'], graph_option['count']), ('讲一次图论', 1))
         worker = self.clients[1]
         home = worker.get('/').text
         self.assertIn('按你选的方向', home)
@@ -425,8 +428,12 @@ class WorkflowTest(unittest.TestCase):
         worker.get('/')
         with worker.session_transaction() as session:
             csrf = session['csrf']
-        saved = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['图论', '数据']}, headers={'Accept': 'application/json'})
-        self.assertEqual(saved.json, {'interests': ['图论', '数据']})
+        saved = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['文档', '数据']}, headers={'Accept': 'application/json'})
+        self.assertEqual(saved.json, {'interests': ['文档', '数据']})
+        # 只能从团队的标签表里选，不能自己写
+        made_up = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['我编的方向']}, headers={'Accept': 'application/json'})
+        self.assertIn('标签表', made_up.json['error'])
+        self.assertNotIn('自己写一个', worker.get('/').text)
         saved = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['论文']}, headers={'Accept': 'application/json'})
         self.assertEqual(saved.json, {'interests': ['论文']})
         cleared = worker.post('/me/interests', data={'csrf': csrf}, headers={'Accept': 'application/json'})
@@ -435,7 +442,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(too_many.status_code, 400)
         self.assertIn('最多 8 个方向', too_many.json['error'])
         # 方向条一直都在，不只给新人看
-        self.post(worker, '/me/interests', {'tags': '图论'})
+        self.post(worker, '/me/interests', {'tags': '数据'})
         self.assertIn('今天想往哪儿使劲', worker.get('/').text)
 
     def test_times_follow_each_viewers_own_time_zone(self):
@@ -714,6 +721,68 @@ class WorkflowTest(unittest.TestCase):
         response = client.post(path, data={**(data or {}), 'csrf': self.csrf(client)}, headers={'Accept': 'application/json'})
         self.assertEqual(response.status_code, status, response.text)
         return response.json
+
+    def test_team_tag_list_is_kept_by_admins(self):
+        owner, worker, other = self.clients
+        # 不是管理员：看不到管理页，也改不了
+        self.assertEqual(owner.get('/admin/tags').status_code, 404)
+        self.assertEqual(self.post(owner, '/admin/tags', {'name': '图论'}).status_code, 404)
+        tags.grant(self.path, 'owner')
+        self.assertIn('团队的标签表', owner.get('/admin/tags').text)
+        self.assertIn('标签管理', owner.get('/').text)
+        self.assertNotIn('标签管理', worker.get('/').text)
+        self.assertIn('加上了「图论」', self.post(owner, '/admin/tags', {'name': '图论', 'note': '图算法的讲题和实验'}).text)
+        self.assertIn('已经在表里', self.post(owner, '/admin/tags', {'name': '图论'}).text)
+        # 发布者从表里勾，也可以写新的；新的自动加进表
+        page = self.post(owner, '/tasks/new', {**self.data, 'category': '', 'tags': ['图论', '数据'], 'new_tags': '线段树',
+                                               'title': '讲一次线段树'})
+        self.assertIn('讲一次线段树', page.text)
+        with connect(self.path) as db:
+            listing = {row['name']: row for row in tags.listing(db)}
+            self.assertEqual(listing['线段树']['used'], 1)
+            self.assertEqual(listing['图论']['note'], '图算法的讲题和实验')
+            task_id = db.execute("SELECT id FROM tasks WHERE title='讲一次线段树'").fetchone()[0]
+            self.assertEqual(discover.tags_by_task(db, [task_id])[task_id], ['图论', '数据', '线段树'])
+        self.assertIn('图算法的讲题和实验', worker.get('/').text)    # 方向卡上能看到说明
+        set_interests(self.path, 2, '线段树 图论')
+        # 合并：线段树并进图论，任务和大家选的方向一起跟过去
+        self.assertIn('已经并进「图论」', self.post(owner, '/admin/tags/update', {'name': '线段树', 'note': '', 'rename': '图论'}).text)
+        with connect(self.path) as db:
+            self.assertEqual(discover.tags_by_task(db, [task_id])[task_id], ['图论', '数据'])
+            self.assertEqual([row[0] for row in db.execute('SELECT tag FROM interests WHERE user_id=2')], ['图论'])
+            self.assertNotIn('线段树', tags.names(db))
+        # 改名、排序、拿掉
+        self.post(owner, '/admin/tags/update', {'name': '杂务', 'note': '跑腿', 'rename': '后勤'})
+        self.post(owner, '/admin/tags/move', {'name': '后勤', 'step': 'up'})
+        with connect(self.path) as db:
+            order = tags.names(db)
+            self.assertEqual(order.index('后勤') + 1, order.index('讲解'))
+        self.post(owner, '/admin/tags/delete', {'name': '图论'})
+        with connect(self.path) as db:
+            self.assertNotIn('图论', tags.names(db))
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM interests WHERE user_id=2').fetchone()[0], 0)
+            self.assertEqual(discover.tags_by_task(db, [task_id])[task_id], ['图论', '数据'])   # 已有的任务不受影响
+        self.assertIn('图论', owner.get('/admin/tags').text)   # 出现在"挂在任务上但不在表里"
+        # 管理员可以再设别人；最后一个管理员不能自己退
+        self.assertIn('至少要留一个管理员', self.post(owner, '/admin/admins', {'name': 'owner', 'on': '0'}).text)
+        self.post(owner, '/admin/admins', {'name': 'other', 'on': '1'})
+        self.assertEqual(other.get('/admin/tags').status_code, 200)
+        with self.assertRaises(InvalidAction):
+            tags.grant(self.path, '不存在的人')
+
+    def test_existing_tags_become_the_team_list_on_upgrade(self):
+        legacy = str(Path(self.temp.name) / 'old-tags.sqlite3')
+        initialize(legacy)
+        with connect(legacy, write=True) as db:
+            db.execute('DROP TABLE org_tags')
+            db.execute("INSERT INTO users (name,password) VALUES ('a','x')")
+            db.execute("""INSERT INTO tasks (title,description,category,importance,urgency,deadline,requirements,owner_id,created_at)
+                VALUES ('t','d','图论','light','normal','2099-01-01','r',1,'2026-01-01')""")
+            db.executemany('INSERT INTO task_tags (task_id,tag) VALUES (1,?)', [('图论',), ('数据',)])
+            db.execute("INSERT INTO interests (user_id,tag) VALUES (1,'PyTorch')")
+        initialize(legacy)
+        with connect(legacy) as db:
+            self.assertEqual(set(tags.names(db)), {'图论', '数据', 'PyTorch'})
 
 
 if __name__ == '__main__':

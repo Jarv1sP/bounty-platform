@@ -90,7 +90,7 @@
     else location.reload();
   }, true);
 
-  /* ---------- 方向条：点一下就选上，颜色从手指按下的地方铺开；停手 0.4 秒后保存并重排第一排 ---------- */
+  /* ---------- 方向条：从团队的标签表里点，颜色从手指按下的地方铺开；停手 0.4 秒后保存并重排第一排 ---------- */
   const dirs = document.querySelector('[data-dirs]');
   if (dirs) {
     const panel = dirs.closest('.dirs');
@@ -104,7 +104,7 @@
     dirs.querySelector('[data-dirs-save]').hidden = true;   // 有脚本时随点随存，不需要保存按钮
 
     grid.addEventListener('pointerdown', event => {
-      const tile = event.target.closest('.dir:not(.dir-add)');
+      const tile = event.target.closest('.dir');
       if (!tile) return;
       const box = tile.getBoundingClientRect();
       tile.style.setProperty('--x', `${event.clientX - box.left}px`);
@@ -173,37 +173,6 @@
     });
     dirs.addEventListener('submit', event => { event.preventDefault(); clearTimeout(timer); save(); });
 
-    // 自己写一个：回车变成一张新卡，颜色和图形按同一套算法由文字决定（和服务器上的 tag_look 一致）
-    const add = dirs.querySelector('[data-dir-add] input');
-    const emblems = dirs.querySelector('template[data-emblems]');
-    const tones = [['#E54465', '#fff'], ['#F39800', '#1B1D2A'], ['#F2B700', '#1B1D2A'], ['#00A27A', '#fff'], ['#00AEE0', '#1B1D2A'], ['#2866B1', '#fff']];
-    add.addEventListener('keydown', event => {
-      if (event.key !== 'Enter' || event.isComposing) return;
-      event.preventDefault();
-      const tag = add.value.trim().replace(/^#/, '');
-      if (!tag) return;
-      if (tag.length > 16 || /[\s,，、;；]/.test(tag)) { add.classList.add('field-error'); feel.toast('<span>一个方向写一个词，16 个字以内</span>'); return; }
-      add.value = '';
-      let box = boxes().find(item => item.value === tag);
-      if (!box) {
-        const code = crc32(tag);
-        const [hue, on] = tones[code % 6];
-        const tile = document.createElement('label');
-        tile.className = 'dir';
-        tile.style.cssText = `--tone:${hue};--on:${on};--i:0`;
-        tile.innerHTML = `<input type="checkbox" name="tags"><span class="dir-fill" aria-hidden="true"></span>${emblems.content.querySelector(`[data-variant="${Math.floor(code / 6) % 6}"]`).outerHTML}<i class="dir-check" aria-hidden="true">${grid.querySelector('.dir-check')?.innerHTML || ''}</i><b></b><small>暂时没有任务</small>`;
-        tile.querySelector('input').value = tag;
-        tile.querySelector('b').textContent = tag;
-        grid.insertBefore(tile, add.closest('.dir'));
-        box = tile.querySelector('input');
-      }
-      if (!box.checked) {
-        if (chosen().length >= limit) { feel.toast(`<span>最多选 ${limit} 个方向，先取消一个</span>`); return; }
-        box.checked = true;
-        react(box.closest('.dir'), true);
-        changed();
-      }
-    });
     dirs.querySelector('[data-dirs-more]')?.addEventListener('click', event => {
       const open = panel.classList.toggle('more');
       event.currentTarget.setAttribute('aria-expanded', String(open));
@@ -213,14 +182,6 @@
     if (moreButton) moreButton.dataset.label = moreButton.querySelector('span').textContent;
   }
 
-  function crc32(text) {
-    let crc = -1;
-    for (const byte of new TextEncoder().encode(text)) {
-      crc ^= byte;
-      for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
-    }
-    return (crc ^ -1) >>> 0;
-  }
   function escape(text) {
     return String(text).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   }
@@ -234,7 +195,8 @@
     const names = {'light-normal': '点', 'standard-normal': '线', 'major-normal': '面', 'light-urgent': '点·急', 'standard-urgent': '线·急', 'major-urgent': '面·急'};
     const xp = {light: 10, standard: 30, major: 80};
     const effort = {light: '半天内', standard: '一两天', major: '一周左右'};
-    const tagsInput = editor.querySelector('[name=tags]');
+    const pickedTags = () => [...editor.querySelectorAll('[name=tags]:checked')].map(box => box.value)
+      .concat((editor.querySelector('[name=new_tags]')?.value || '').split(/[,，、;；\s]+/).map(t => t.replace(/^#/, '')).filter(Boolean));
     let lastKey = '';
     const update = () => {
       const value = name => editor.querySelector(`[name=${name}]:checked`)?.value || editor.querySelector(`[name=${name}]`)?.value || '';
@@ -243,7 +205,7 @@
       const key = `${importance}-${urgency}`;
       out('title').forEach(el => { el.textContent = value('title') || '任务标题'; });
       out('description').forEach(el => { el.textContent = value('description') || '任务说明会显示在这里。'; });
-      const tags = (tagsInput.value || '').split(/[,，、;；\s]+/).map(t => t.replace(/^#/, '')).filter(Boolean).slice(0, 3);
+      const tags = pickedTags().slice(0, 3);
       out('tags').forEach(el => { el.innerHTML = tags.map(t => `<span class="tag">${escape(t)}</span>`).join(''); });
       out('effort').forEach(el => { el.textContent = effort[importance]; });
       out('xp').forEach(el => { el.textContent = `+${urgency === 'urgent' ? xp[importance] * 1.5 : xp[importance]}`; });
@@ -260,13 +222,17 @@
     editor.addEventListener('input', update);
     editor.addEventListener('change', update);
     update();
-    document.querySelectorAll('[data-tag-suggest] [data-tag]').forEach(button => button.addEventListener('click', () => {
-      const tags = tagsInput.value.split(/[,，、;；\s]+/).filter(Boolean);
-      if (!tags.includes(button.dataset.tag) && tags.length < 5) tags.push(button.dataset.tag);
-      tagsInput.value = tags.join(' ') + ' ';
-      tagsInput.focus();
-      feel.play(button, [{transform: 'scale(.9)'}, {transform: 'scale(1)'}], {duration: 200, easing: feel.B});
-      update();
-    }));
+    // 最多 5 个标签：勾满了就挡一下
+    editor.querySelector('[data-tag-pick]')?.addEventListener('change', event => {
+      if (event.target.checked && pickedTags().length > 5) {
+        event.target.checked = false;
+        feel.play(event.target.closest('.chip'), [{transform: 'translateX(-4px)'}, {transform: 'translateX(3px)'}, {transform: 'none'}], {duration: 220});
+        feel.toast('<span>最多 5 个标签</span>');
+        update();
+        return;
+      }
+      feel.play(event.target.closest('.chip'), [{transform: 'scale(.9)'}, {transform: 'scale(1)'}], {duration: 200, easing: feel.B});
+      feel.sfx('tap');
+    });
   }
 })();

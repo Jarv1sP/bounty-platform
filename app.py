@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote
 from flask import Flask, abort, flash, g, redirect, render_template, render_template_string, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
-from bounty import blocks, discover, games, progress, recap, titles, unlocks
+from bounty import blocks, discover, games, progress, recap, tags, titles, unlocks
 from bounty.db import connect, initialize
 from bounty.honors import COLD_DAYS, EFFORT, IMPORTANCE, URGENCY, MEDALS, cold_bonus, medal_key, task_xp
 from bounty.service import (CATEGORIES, STATUSES, KINDS, MAX_INTERESTS, TEAM_TZ, InvalidAction, act, clap, create_task,
@@ -120,13 +120,14 @@ def create_app(config=None):
 
     @app.context_processor
     def context():
-        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0, play_new=0, my_title=None)
+        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0, play_new=0, my_title=None, is_admin=False)
         if g.get('user'):
             with database() as db:
                 # 信箱里装两种东西：还没拆的勋章，和刚解锁、还没庆祝过的称号
                 extra['mailbox'] = db.execute('SELECT COUNT(*) FROM honors WHERE user_id=? AND seen_at IS NULL',
                                               (g.user['id'],)).fetchone()[0] + len(titles.unseen(db, g.user['id']))
                 extra['play_new'] = unlocks.new_count(db, g.user['id'])
+                extra['is_admin'] = tags.is_admin(db, g.user['id'])
                 extra['my_title'] = titles.chosen_title(db, g.user['id'])
                 extra['me'] = progress.person_progress(db, g.user['id'])
                 # 轮到我的事：我在做的、等我验收的
@@ -307,16 +308,81 @@ def create_app(config=None):
     @login_required
     def new_task():
         if request.method == 'POST':
+            # 标签：从团队标签表里勾的，加上自己新写的（新写的会加进标签表）
+            payload = request.form.to_dict()
+            payload['tags'] = ' '.join(request.form.getlist('tags') + [request.form.get('new_tags', '')])
             try:
-                task_id = create_task(app.config['DATABASE'], g.user['id'], request.form, g.tz)
+                task_id = create_task(app.config['DATABASE'], g.user['id'], payload, g.tz)
                 flash('任务已发布。', 'success')
                 return redirect(url_for('detail', task_id=task_id))
             except InvalidAction as error:
                 flash(str(error), 'error')
         with database() as db:
-            known_tags = [row['tag'] for row in db.execute('SELECT tag,COUNT(*) n FROM task_tags GROUP BY tag ORDER BY n DESC,tag LIMIT 40')]
+            team_tags = tags.listing(db)
             projects = [row['project'] for row in db.execute('SELECT DISTINCT project FROM tasks WHERE project IS NOT NULL ORDER BY project')]
-        return render_template('new.html', known_tags=known_tags or list(CATEGORIES), projects=projects)
+        return render_template('new.html', team_tags=team_tags, projects=projects, picked=request.form.getlist('tags'))
+
+    # ---------------- 管理员：团队的标签表、谁是管理员 ----------------
+    def admin_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            with database() as db:
+                if not tags.is_admin(db, g.user['id']):
+                    abort(404)
+            return view(*args, **kwargs)
+        return login_required(wrapped)
+
+    @app.get('/admin/tags')
+    @admin_required
+    def admin_tags():
+        with database() as db:
+            listing = tags.listing(db)
+            people = db.execute('SELECT name,is_admin FROM users ORDER BY is_admin DESC,id').fetchall()
+            loose = [row['tag'] for row in db.execute('''SELECT DISTINCT x.tag FROM task_tags x JOIN tasks t ON t.id=x.task_id
+                WHERE t.status<>'done' AND x.tag NOT IN (SELECT name FROM org_tags) ORDER BY x.tag''')]
+        return render_template('admin_tags.html', listing=listing, people=people, loose=loose, note_limit=tags.NOTE_LIMIT)
+
+    def admin_action(action, message):
+        try:
+            result = action()
+            flash(message(result) if callable(message) else message, 'success')
+        except InvalidAction as error:
+            flash(str(error), 'error')
+        return redirect(url_for('admin_tags') + (request.form.get('anchor') or ''))
+
+    @app.post('/admin/tags')
+    @admin_required
+    def add_tag():
+        return admin_action(lambda: tags.add(app.config['DATABASE'], g.user['id'], request.form.get('name', ''), request.form.get('note', '')),
+                            lambda name: f'加上了「{name}」。')
+
+    @app.post('/admin/tags/update')
+    @admin_required
+    def update_tag():
+        def done(result):
+            name, merged = result
+            return f'已经并进「{name}」。' if merged else f'「{name}」改好了。'
+        return admin_action(lambda: tags.update(app.config['DATABASE'], g.user['id'], request.form.get('name', ''),
+                                                request.form.get('note', ''), request.form.get('rename', '')), done)
+
+    @app.post('/admin/tags/move')
+    @admin_required
+    def move_tag():
+        return admin_action(lambda: tags.move(app.config['DATABASE'], g.user['id'], request.form.get('name', ''),
+                                              1 if request.form.get('step') == 'down' else -1), '顺序调好了。')
+
+    @app.post('/admin/tags/delete')
+    @admin_required
+    def delete_tag():
+        name = request.form.get('name', '')
+        return admin_action(lambda: tags.remove(app.config['DATABASE'], g.user['id'], name), f'「{name}」从表里拿掉了。')
+
+    @app.post('/admin/admins')
+    @admin_required
+    def set_admin():
+        name, on = request.form.get('name', ''), request.form.get('on') == '1'
+        return admin_action(lambda: tags.set_admin(app.config['DATABASE'], g.user['id'], name, on),
+                            f'{name} {"成了" if on else "不再是"}管理员。')
 
     @app.get('/honors')
     @login_required

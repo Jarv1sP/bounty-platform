@@ -20,10 +20,12 @@
     <label class="field"><span>交付要求<small>验收时按这里判断</small></span>
       <textarea name="requirements" required maxlength="10000" placeholder="例如：30 组数据，附生成脚本，写明每组用途。">{{ form.get('requirements', '') }}</textarea></label>
     <div class="two">
-      <div class="field"><span>标签<small>最多 5 个，可以新建</small></span>
-        <div class="tag-input" data-tag-input><input name="tags" value="{{ form.get('tags', '') }}" placeholder="例如：数据 图论 PyTorch" list="known-tags" autocomplete="off" aria-label="标签，用空格或逗号分开" data-preview="tags"></div>
-        <datalist id="known-tags">{% for tag in known_tags %}<option value="{{ tag }}">{% endfor %}</datalist>
-        <div class="suggest" data-tag-suggest>{% for tag in known_tags[:8] %}<button type="button" data-tag="{{ tag }}">#{{ tag }}</button>{% endfor %}</div>
+      <div class="field"><span>标签<small>从团队的标签表里挑，最多 5 个</small></span>
+        <div class="tag-pick" data-tag-pick>
+          {% for tag in team_tags %}<label class="chip" title="{{ tag.note }}"><input type="checkbox" name="tags" value="{{ tag.name }}" {% if tag.name in picked %}checked{% endif %} data-preview="tags">{{ tag.name }}</label>{% endfor %}
+        </div>
+        <input class="new-tags" name="new_tags" maxlength="60" value="{{ request.form.get('new_tags', '') }}" placeholder="表里没有合适的？写一个新的" aria-label="新标签，用空格分开" autocomplete="off" data-preview="tags">
+        <small class="field-note">新写的标签会加进团队的标签表，管理员之后会整理。</small>
       </div>
       <label class="field"><span>项目<small>可选，新项目直接输入名字</small></span>
         <input name="project" maxlength="30" value="{{ form.get('project', '') }}" list="known-projects" placeholder="例如：校赛 2026" autocomplete="off" data-preview="project">

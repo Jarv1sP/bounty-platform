@@ -3,7 +3,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from .honors import MEDALS, medal_key
-from .service import CATEGORIES, is_cold, now, waited_days
+from .service import is_cold, now, waited_days
 
 
 def _parse(value):
@@ -195,9 +195,9 @@ def due_text(left):
     return f'还有 {hours} 小时截止' if hours else '不到 1 小时截止'
 
 
-def directions(db, chosen=(), limit=18):
-    """What the direction picker offers: tags on open tasks (busiest first, with one example task),
-    plus whatever this person already picked, plus starter tags when the board is nearly empty."""
+def directions(db, chosen=()):
+    """What the direction picker offers: the team's own tag list (in the admin's order, with their notes),
+    each with how many open tasks carry it and one example."""
     rows = db.execute("SELECT id,title FROM tasks WHERE status='open' ORDER BY created_at DESC,id DESC").fetchall()
     tags_of = tags_by_task(db, [row['id'] for row in rows])
     count, example = Counter(), {}
@@ -205,10 +205,9 @@ def directions(db, chosen=(), limit=18):
         for tag in tags_of[row['id']]:
             count[tag] += 1
             example.setdefault(tag, row['title'])
-    tags = [tag for tag, _ in count.most_common(limit)]
-    tags += [tag for tag in chosen if tag not in tags]
-    tags += [tag for tag in CATEGORIES if tag not in tags][:max(0, 6 - len(tags))]
-    return [dict(tag=tag, count=count[tag], example=example.get(tag), chosen=tag in chosen) for tag in tags]
+    return [dict(tag=row['name'], note=row['note'], count=count[row['name']], example=example.get(row['name']),
+                 chosen=row['name'] in chosen)
+            for row in db.execute('SELECT name,note FROM org_tags ORDER BY position,name')]
 
 
 def past_tags(db, user_id, limit=3):

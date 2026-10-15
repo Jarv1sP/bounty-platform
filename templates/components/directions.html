@@ -1,6 +1,6 @@
 {% from 'components/icon.html' import icon %}
 
-{# 方向卡的小图：六种点线面构图，颜色和构图都由标签文字算出（见 app.tag_look），board.js 里有同样的算法给新写的方向用。
+{# 方向卡的小图：六种点线面构图，颜色和构图都由标签文字算出（见 app.tag_look）。
    e1 = 方向色（选中后变白），e2 = 墨色。d-a 带 --i，选中时按顺序弹出来。 #}
 {% macro emblem_shapes(variant) -%}
 {%- if variant == 0 -%}
@@ -27,18 +27,19 @@
   <i class="dir-check" aria-hidden="true">{{ icon('check') }}</i>
   <b>{{ option.tag }}</b>
   <small>{{ option.count ~ ' 个任务等人' if option.count else '暂时没有任务' }}</small>
-  {% if option.example %}<em>如「{{ option.example }}」</em>{% endif %}
+  {% if option.note %}<em>{{ option.note }}</em>{% elif option.example %}<em>如「{{ option.example }}」</em>{% endif %}
 </label>
 {%- endmacro %}
 
-{# 发现页最上面的方向条：每次进来都能重新点，点了立刻重排「按你选的方向」那一排；不用 JS 时就是一个普通表单 #}
+{# 发现页最上面的方向条：每次进来都能重新点，点了立刻重排「按你选的方向」那一排；不用 JS 时就是一个普通表单。
+   方向就是团队的标签表（管理员维护），大家只管点，不用自己想该写什么。 #}
 {% macro direction_bar(options, interests, shown=11) -%}
 <section class="dirs panel" id="dirs" aria-labelledby="dirs-title">
   <form method="post" action="{{ url_for('interests') }}" data-dirs>
     <input type="hidden" name="csrf" value="{{ session.csrf }}">
     <header class="dirs-head">
       <h2 id="dirs-title">今天想往哪儿使劲？</h2>
-      <p>点几个方向，下面那排马上换；每次来都可以重新点。</p>
+      <p>点几个方向，下面那排马上换；每次来都可以重新点。{% if is_admin %} <a class="dirs-admin" href="{{ url_for('admin_tags') }}">整理标签表 →</a>{% endif %}</p>
       <div class="dirs-side">
         <span class="dirs-count" aria-live="polite">已选 <b class="num" data-dirs-count>{{ interests|length }}</b><span class="num"> / {{ max_interests }}</span></span>
         <button type="button" class="btn btn-ghost btn-sm" data-dirs-clear {% if not interests %}hidden{% endif %}>清空</button>
@@ -47,14 +48,8 @@
     </header>
     <div class="dir-grid" data-dir-grid>
       {% for option in options %}{{ dir_tile(option, loop.index0, shown) }}{% endfor %}
-      <div class="dir dir-add" data-dir-add>
-        <span class="dir-plus" aria-hidden="true">{{ icon('plus') }}</span>
-        <input name="tags" maxlength="16" placeholder="自己写一个" aria-label="自己写一个方向，回车加上" enterkeyhint="done" autocomplete="off">
-        <small>回车加上</small>
-      </div>
     </div>
     {% if options|length > shown %}<button type="button" class="dirs-more" data-dirs-more aria-expanded="false">{{ icon('down') }}<span>还有 {{ options|length - shown }} 个方向</span></button>{% endif %}
-    <template data-emblems>{% for v in range(6) %}<svg data-variant="{{ v }}" class="dir-art" viewBox="0 0 64 64" aria-hidden="true">{{ emblem_shapes(v) }}</svg>{% endfor %}</template>
   </form>
 </section>
 {%- endmacro %}

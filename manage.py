@@ -14,6 +14,9 @@ def main():
     commands.add_parser('demo', help='Seed an empty database only')
     backup = commands.add_parser('backup', help='Consistent SQLite backup; refuses to overwrite')
     backup.add_argument('output', type=Path)
+    admin = commands.add_parser('admin', help='Make a registered user an admin (maintains the team tag list)')
+    admin.add_argument('name')
+    admin.add_argument('--revoke', action='store_true', help='Take admin away instead')
     args = parser.parse_args()
     data = args.data_dir.resolve()
     database = data / 'bounty.sqlite3'
@@ -32,6 +35,17 @@ def main():
             source.close()
             destination.close()
         print(f'Backup: {output}')
+    elif args.command == 'admin':
+        if not database.exists():
+            parser.error('Database does not exist')
+        initialize(database)
+        from bounty.service import InvalidAction
+        from bounty.tags import grant
+        try:
+            grant(database, args.name, not args.revoke)
+        except InvalidAction as error:
+            parser.error(str(error))
+        print(f'{args.name} {"不再是" if args.revoke else "现在是"}管理员。')
     else:
         data.mkdir(parents=True, exist_ok=True)
         initialize(database)
