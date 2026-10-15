@@ -37,7 +37,7 @@
       <div class="field"><span>紧急程度</span><div class="seg two-up">
         <label class="opt"><input type="radio" name="urgency" value="normal" {% if urgency == 'normal' %}checked{% endif %} data-preview="urgency"><span class="dot-ic">缓</span><span><b>不急</b><small>按截止来</small></span></label>
         <label class="opt"><input type="radio" name="urgency" value="urgent" {% if urgency == 'urgent' %}checked{% endif %} data-preview="urgency"><span class="dot-ic hot">急</span><span><b>加急</b><small>经验 +50%</small></span></label></div></div>
-      <label class="field"><span>截止时间<small>团队所在时区</small></span>
+      <label class="field"><span>截止时间<small>按你这里的时间填</small></span>
         <input type="datetime-local" name="deadline" required value="{{ form.get('deadline', '') }}"></label>
     </div>
     <div class="submit-row"><p>有人认领前都可以在讨论区补充说明。</p><button class="btn btn-big primary" type="submit">{{ icon('plus') }}发布</button></div>

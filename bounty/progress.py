@@ -4,6 +4,7 @@ Plus one shared line for the whole team: a weekly bundle filled by anyone's acce
 """
 from datetime import datetime, timedelta, timezone
 from .honors import MEDALS
+from .service import TEAM_TZ
 
 # 经验按工作量给：重要任务约等于八个轻量任务，愿意啃硬骨头的人升级更快；加急多 50%。
 XP = {'light': 10, 'standard': 30, 'major': 80}
@@ -61,9 +62,11 @@ PIECES = 8
 
 
 def week_start(moment=None):
-    moment = moment or datetime.now(timezone.utc)
+    """Monday 00:00 on the team clock. The bundle is shared, so everyone must agree on when a week turns over,
+    wherever they are; it is returned in UTC because the database compares UTC strings."""
+    moment = (moment or datetime.now(timezone.utc)).astimezone(TEAM_TZ)
     day = moment.replace(hour=0, minute=0, second=0, microsecond=0)
-    return day - timedelta(days=day.weekday())
+    return (day - timedelta(days=day.weekday())).astimezone(timezone.utc)
 
 
 def _fill(slots, honors):
@@ -81,7 +84,7 @@ def _fill(slots, honors):
 
 
 def bundle_for(db, start):
-    name, slots = BUNDLES[start.isocalendar()[1] % len(BUNDLES)]
+    name, slots = BUNDLES[start.astimezone(TEAM_TZ).isocalendar()[1] % len(BUNDLES)]
     honors = db.execute('''SELECT h.medal_key,h.awarded_at,u.name who,t.title FROM honors h
         JOIN users u ON u.id=h.user_id JOIN tasks t ON t.id=h.task_id
         WHERE h.awarded_at>=? AND h.awarded_at<? ORDER BY h.awarded_at''',

@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from werkzeug.security import generate_password_hash
 from .db import connect, initialize
-from .service import act, clap, create_task
+from .service import act, clap, create_task, set_interests
 
 DEMO_USERS = ('发布者', '认领人', '其他成员', '陈默', '王瑶', '周然', '林夕')
 DEMO_PASSWORD = 'demo12345'
@@ -34,7 +34,16 @@ TASKS = (
     ('数据 清洗', '校赛 2026', '清洗去年比赛的提交记录', '去掉重复提交和测试账号，导出成一张表。', 'standard', 'normal', '陈默', 'accept', '认领人'),
     ('代码 评测机', '实验室基建', '修好评测机的内存统计', '内存峰值总是偏小，查清采样方式并修好。', 'major', 'urgent', '周然', 'accept', '陈默'),
     ('实验 复现', 'GNN 研究', '复现 GCN 的 baseline', '在 Cora 上跑出论文精度，写清随机种子和超参。', 'major', 'normal', '其他成员', 'accept', '周然'),
+    ('讲解 题解', '新人培养', '整理上周周赛的错题', '把大家错得最多的三道题整理成一页，写清卡在哪一步。', 'light', 'normal', '王瑶', 'accept', '认领人'),
+    ('数据 题库', '题库', '补全 50 道题的样例解释', '给样例没有解释的 50 道题补上一两句说明。', 'light', 'normal', '陈默', 'accept', '认领人'),
+    ('杂务', '校赛 2026', '连夜改好报名表', '报名表的学号校验写错了，今晚之前改好重新发。', 'light', 'urgent', '发布者', 'accept', '认领人'),
 )
+# 验收时写的夸奖：会刻在勋章背面
+PRAISE = {'整理上周周赛的错题': '写得很清楚', '补全 50 道题的样例解释': '靠谱，一次就过', '连夜改好报名表': '救了急',
+          '清洗去年比赛的提交记录': '超出预期'}
+# 已经拆开看过的勋章（其余的留在信箱里，登录后能看到颁奖）
+SEEN = ('整理上周周赛的错题', '补全 50 道题的样例解释', '连夜改好报名表')
+INTERESTS = {'认领人': '图论 PyTorch', '王瑶': '数据 论文'}
 CLAPS = {'写周会纪要模板': ('王瑶', '陈默'), '清洗去年比赛的提交记录': ('陈默', '周然', '林夕'),
          '修好评测机的内存统计': ('认领人', '王瑶', '周然', '林夕'), '复现 GCN 的 baseline': ('陈默', '王瑶')}
 
@@ -64,7 +73,12 @@ def seed_demo(path):
         if stage in ('submit', 'accept'):
             act(path, task_id, U[worker], 'submit', '成果放在共享盘，说明写在 README 里。')
         if stage == 'accept':
-            act(path, task_id, U[owner], 'accept', '很清楚，已经在用了。')
+            act(path, task_id, U[owner], 'accept', PRAISE.get(title, '很清楚，已经在用了。'))
             for fan in CLAPS.get(title, ()):
                 clap(path, task_id, U[fan])
+    with connect(path, write=True) as db:
+        db.executemany('UPDATE honors SET seen_at=awarded_at WHERE task_id=(SELECT id FROM tasks WHERE title=?)',
+                       [(title,) for title in SEEN])
+    for name, tags in INTERESTS.items():
+        set_interests(path, U[name], tags)
     return len(TASKS)

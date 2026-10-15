@@ -1,13 +1,16 @@
 import os
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from .db import connect
 from .honors import IMPORTANCE, URGENCY, medal_key
 
 # Suggested starter tags only: teams add their own tags and projects freely, nothing is limited to this list.
 CATEGORIES = ('实验', '数据', '论文', '代码', '讲解', '杂务')
 MAX_TAGS = 5
-# 团队所在时区：表单里填的时间、页面上显示的时间都按它来（默认北京时间，可用 BOUNTY_TZ_OFFSET 改）。
+MAX_INTERESTS = 8
+# 每个人看到的时间按自己浏览器的时区来（见 zone）。团队时区只在两处用到：浏览器没报时区时的兜底，
+# 以及全队共用的「本周」从哪天零点算起（每周收集包）。默认北京时间，可用 BOUNTY_TZ_OFFSET 改。
 TEAM_TZ = timezone(timedelta(hours=float(os.environ.get('BOUNTY_TZ_OFFSET', '8'))))
 STATUSES = {'open': '待认领', 'active': '进行中', 'review': '待验收', 'done': '已完成'}
 KINDS = {'claim': '认领任务', 'submit': '提交成果', 'accept': '验收通过', 'return': '退回修改', 'comment': '讨论', 'settle': '历史结算记录'}
@@ -27,21 +30,32 @@ def required(data, key, label, limit=10000):
     return value
 
 
-def parse_tags(raw):
+def zone(name):
+    """A viewer's IANA time zone (as reported by their browser), or the team zone when it is missing or unknown."""
+    if name and len(name) <= 64 and re.fullmatch(r'[A-Za-z0-9_+\-]+(/[A-Za-z0-9_+\-]+)*', name):
+        try:
+            return ZoneInfo(name)
+        except (KeyError, ValueError, OSError):   # 没有时区数据库（Windows 未装 tzdata）时也退回团队时区
+            pass
+    return TEAM_TZ
+
+
+def parse_tags(raw, limit=MAX_TAGS, noun='标签'):
     """Split free-form tags on commas, enumeration marks or spaces; keep order, drop duplicates."""
     tags = []
     for part in re.split(r'[,，、;；\s]+', raw or ''):
         tag = part.strip().lstrip('#')
         if tag and tag not in tags:
             if len(tag) > 16:
-                raise InvalidAction('每个标签不能超过 16 个字。')
+                raise InvalidAction(f'每个{noun}不能超过 16 个字。')
             tags.append(tag)
-    if len(tags) > MAX_TAGS:
-        raise InvalidAction(f'最多 {MAX_TAGS} 个标签。')
+    if len(tags) > limit:
+        raise InvalidAction(f'最多 {limit} 个{noun}。')
     return tags
 
 
-def create_task(path, user_id, data):
+def create_task(path, user_id, data, tz=None):
+    """tz: the publisher's zone; a deadline typed without an offset means their own wall-clock time."""
     title = required(data, 'title', '标题', 120)
     description = required(data, 'description', '任务说明')
     requirements = required(data, 'requirements', '交付要求')
@@ -59,7 +73,7 @@ def create_task(path, user_id, data):
     try:
         deadline = datetime.fromisoformat(data.get('deadline', ''))
         if deadline.tzinfo is None:
-            deadline = deadline.replace(tzinfo=TEAM_TZ)
+            deadline = deadline.replace(tzinfo=tz or TEAM_TZ)
         deadline = deadline.astimezone(timezone.utc).isoformat(timespec='seconds')
         if deadline <= now():
             raise ValueError()
@@ -127,7 +141,7 @@ def clap(path, task_id, user_id):
 
 def set_interests(path, user_id, raw):
     """What someone wants to work on; seeds recommendations before they have finished anything."""
-    tags = parse_tags(raw)
+    tags = parse_tags(raw, MAX_INTERESTS, '方向')
     with connect(path, write=True) as db:
         db.execute('DELETE FROM interests WHERE user_id=?', (user_id,))
         db.executemany('INSERT INTO interests (user_id,tag) VALUES (?,?)', [(user_id, tag) for tag in tags])

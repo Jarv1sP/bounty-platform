@@ -1,6 +1,6 @@
-/* 页面级交互：发现页的任务墙翻页和推荐卡，发布页的实时预览。手感工具来自 ui.js 的 window.bounty。 */
+/* 页面级交互：发现页的方向条、两排推荐和任务墙翻页，发布页的实时预览。手感工具来自 ui.js 的 window.bounty。 */
 (() => {
-  const feel = window.bounty || {play() { return null; }, sfx() {}, motionOn: () => false, A: 'ease', B: 'ease', C: 'ease'};
+  const feel = window.bounty || {play() { return null; }, sfx() {}, toast() {}, motionOn: () => false, A: 'ease', B: 'ease', C: 'ease', D: 'ease'};
 
   /* ---------- 任务墙：一页 12 张，翻页时整块滑过去 ---------- */
   const canvas = document.querySelector('.wall-canvas');
@@ -25,17 +25,205 @@
     document.querySelector('[data-wall-prev]')?.addEventListener('click', () => go(-1));
   }
 
-  /* ---------- 推荐卡：不感兴趣时先甩出去再提交 ---------- */
-  document.querySelectorAll('.pick-x').forEach(form => form.addEventListener('submit', event => {
-    const card = form.closest('.pick');
-    const motion = feel.play(card, [{transform: 'none', opacity: 1}, {transform: 'translateY(16px) rotate(4deg) scale(.94)', opacity: 0}], {duration: 220, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards'});
-    if (!motion) return;
+  /* ---------- 两排推荐：换一批、不感兴趣、改方向之后，只把那一排重新发一次牌 ---------- */
+  const csrf = () => document.querySelector('meta[name=csrf-token]')?.content || '';
+  const laneTicket = {};
+  async function refreshLane(lane, batch = 0) {
+    const body = document.querySelector(`[data-lane-body="${lane}"]`);
+    if (!body) return;
+    const ticket = laneTicket[lane] = (laneTicket[lane] || 0) + 1;
+    const wantBatch = document.querySelector('[data-lane-more="want"]')?.dataset.batch || 0;
+    const fetched = fetch(`/picks/${lane}?batch=${batch}&wb=${wantBatch}`, {headers: {Accept: 'text/html'}}).then(r => r.ok ? r.text() : Promise.reject());
+    // 旧牌先收走（和请求同时进行），新牌一张张发出来
+    const old = [...body.querySelectorAll('.pick, .lane-empty, .empty')];
+    body.style.minHeight = `${body.offsetHeight}px`;
+    await Promise.all(old.map((card, i) => feel.play(card, [{transform: 'none', opacity: 1}, {transform: 'translateY(10px) scale(.96)', opacity: 0}], {duration: 150, delay: i * 30, easing: feel.D, fill: 'forwards'})?.finished));
+    let html;
+    try { html = await fetched; } catch { old.forEach(card => card.getAnimations().forEach(a => a.cancel())); body.style.minHeight = ''; feel.toast('<span>没拿到新的推荐，稍后再试</span>'); return; }
+    if (ticket !== laneTicket[lane]) return;   // 连点时只认最后一次
+    const next = new DOMParser().parseFromString(html, 'text/html').querySelector(`[data-lane-body="${lane}"]`);
+    body.replaceChildren(...next.childNodes);
+    body.style.minHeight = '';
+    body.querySelectorAll('.pick, .lane-empty, .empty').forEach((card, i) => {
+      feel.play(card, [{transform: 'translateY(26px) rotate(-2deg) scale(.94)', opacity: 0}, {transform: 'none', opacity: 1}], {duration: 420, delay: i * 70, easing: feel.B, fill: 'backwards'});
+      setTimeout(() => feel.sfx('tap'), i * 70);
+    });
+    const more = document.querySelector(`[data-lane-more="${lane}"]`);
+    if (more) { more.hidden = !body.querySelector('.pick'); more.dataset.batch = String(batch); }
+    // 第一排换了以后，如果和第二排撞了同一个任务，第二排也补一次
+    if (lane === 'want') {
+      const shown = new Set([...body.querySelectorAll('[data-pick]')].map(card => card.dataset.pick));
+      if ([...document.querySelectorAll('[data-lane-body="past"] [data-pick]')].some(card => shown.has(card.dataset.pick))) {
+        refreshLane('past', Number(document.querySelector('[data-lane-more="past"]')?.dataset.batch || 0));
+      }
+    }
+  }
+  document.addEventListener('click', event => {
+    const more = event.target.closest('[data-lane-more]');
+    if (!more) return;
     event.preventDefault();
-    motion.finished.then(() => HTMLFormElement.prototype.submit.call(form));
-  }));
-  document.querySelectorAll('[data-shuffle]').forEach(link => link.addEventListener('click', () => {
-    document.querySelectorAll('.pick').forEach((card, i) => feel.play(card, [{transform: 'none'}, {transform: 'translateY(8px) scale(.97)', opacity: .4}], {duration: 160, delay: i * 30, fill: 'forwards'}));
-  }));
+    const icon = more.querySelector('svg');
+    feel.play(icon, [{transform: 'rotate(0)'}, {transform: 'rotate(360deg)'}], {duration: 520, easing: feel.C});
+    refreshLane(more.dataset.laneMore, Number(more.dataset.batch || 0) + 1);
+  });
+  // 不感兴趣：卡片甩出去，记下来，这一排补一张新的上来
+  document.addEventListener('submit', async event => {
+    const form = event.target.closest('.pick-x');
+    if (!form) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const card = form.closest('.pick');
+    const lane = form.closest('[data-lane-body]')?.dataset.laneBody;
+    feel.sfx('tap');
+    const away = feel.play(card, [{transform: 'none', opacity: 1}, {transform: 'translate(30px,-10px) rotate(8deg) scale(.9)', opacity: 0}], {duration: 240, easing: feel.D, fill: 'forwards'});
+    try {
+      const response = await fetch(form.action, {method: 'POST', body: new FormData(form), headers: {Accept: 'application/json'}});
+      if (!response.ok) throw new Error();
+    } catch {
+      away?.cancel();
+      feel.toast('<span>没记下，稍后再试</span>');
+      return;
+    }
+    await away?.finished;
+    const more = document.querySelector(`[data-lane-more="${lane}"]`);
+    if (lane) refreshLane(lane, Number(more?.dataset.batch || 0));
+    else location.reload();
+  }, true);
+
+  /* ---------- 方向条：点一下就选上，颜色从手指按下的地方铺开；停手 0.4 秒后保存并重排第一排 ---------- */
+  const dirs = document.querySelector('[data-dirs]');
+  if (dirs) {
+    const panel = dirs.closest('.dirs');
+    const grid = dirs.querySelector('[data-dir-grid]');
+    const counter = dirs.querySelector('[data-dirs-count]');
+    const clear = dirs.querySelector('[data-dirs-clear]');
+    const limit = 8;
+    const boxes = () => [...dirs.querySelectorAll('input[type=checkbox][name=tags]')];
+    const chosen = () => boxes().filter(box => box.checked).map(box => box.value);
+    let timer = null;
+    dirs.querySelector('[data-dirs-save]').hidden = true;   // 有脚本时随点随存，不需要保存按钮
+
+    grid.addEventListener('pointerdown', event => {
+      const tile = event.target.closest('.dir:not(.dir-add)');
+      if (!tile) return;
+      const box = tile.getBoundingClientRect();
+      tile.style.setProperty('--x', `${event.clientX - box.left}px`);
+      tile.style.setProperty('--y', `${event.clientY - box.top}px`);
+    });
+    grid.addEventListener('change', event => {
+      const box = event.target;
+      if (box.type !== 'checkbox') return;
+      const tile = box.closest('.dir');
+      if (box.checked && chosen().length > limit) {
+        box.checked = false;
+        feel.play(tile, [{transform: 'translateX(-5px)'}, {transform: 'translateX(4px)'}, {transform: 'translateX(-2px)'}, {transform: 'none'}], {duration: 260});
+        feel.toast(`<span>最多选 ${limit} 个方向，先取消一个</span>`);
+        return;
+      }
+      react(tile, box.checked);
+      changed();
+    });
+    function react(tile, on) {
+      const art = tile.querySelector('.dir-art');
+      if (on) {
+        art.classList.remove('anim');
+        void art.getBoundingClientRect();
+        art.classList.add('anim');
+        feel.play(tile, [{transform: 'scale(.95)'}, {transform: 'scale(1.04)', offset: .45}, {transform: 'none'}], {duration: 380, easing: feel.C});
+        // 连着选，音一个比一个高（星露谷捡东西的那种）
+        feel.sfx('tick', {pitch: 1 + chosen().length * 0.12});
+      } else {
+        tile.style.setProperty('--x', '50%');
+        tile.style.setProperty('--y', '50%');
+        feel.sfx('tap');
+      }
+    }
+    function changed() {
+      const tags = chosen();
+      counter.textContent = tags.length;
+      feel.play(counter, [{transform: 'scale(1.5)'}, {transform: 'scale(1)'}], {duration: 260, easing: feel.B});
+      clear.hidden = !tags.length;
+      const label = document.querySelector('[data-want-tags]');
+      if (label) {
+        label.innerHTML = tags.map(tag => {
+          const tone = boxes().find(box => box.value === tag)?.closest('.dir')?.style.getPropertyValue('--tone') || '';
+          return `<span class="tag" style="--tone:${tone}">${escape(tag)}</span>`;
+        }).join('');
+      }
+      clearTimeout(timer);
+      timer = setTimeout(save, 420);
+    }
+    async function save() {
+      const body = new URLSearchParams({csrf: csrf()});
+      chosen().forEach(tag => body.append('tags', tag));
+      try {
+        const response = await fetch(dirs.action, {method: 'POST', body, headers: {Accept: 'application/json'}});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+      } catch (error) {
+        feel.toast(`<span>${escape(error.message || '没保存上，稍后再试')}</span>`);
+        return;
+      }
+      refreshLane('want', 0);
+    }
+    clear.addEventListener('click', () => {
+      boxes().forEach(box => { box.checked = false; box.closest('.dir').style.setProperty('--x', '50%'); box.closest('.dir').style.setProperty('--y', '50%'); });
+      feel.sfx('tap');
+      changed();
+    });
+    dirs.addEventListener('submit', event => { event.preventDefault(); clearTimeout(timer); save(); });
+
+    // 自己写一个：回车变成一张新卡，颜色和图形按同一套算法由文字决定（和服务器上的 tag_look 一致）
+    const add = dirs.querySelector('[data-dir-add] input');
+    const emblems = dirs.querySelector('template[data-emblems]');
+    const tones = [['#E54465', '#fff'], ['#F39800', '#1B1D2A'], ['#F2B700', '#1B1D2A'], ['#00A27A', '#fff'], ['#00AEE0', '#1B1D2A'], ['#2866B1', '#fff']];
+    add.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      event.preventDefault();
+      const tag = add.value.trim().replace(/^#/, '');
+      if (!tag) return;
+      if (tag.length > 16 || /[\s,，、;；]/.test(tag)) { add.classList.add('field-error'); feel.toast('<span>一个方向写一个词，16 个字以内</span>'); return; }
+      add.value = '';
+      let box = boxes().find(item => item.value === tag);
+      if (!box) {
+        const code = crc32(tag);
+        const [hue, on] = tones[code % 6];
+        const tile = document.createElement('label');
+        tile.className = 'dir';
+        tile.style.cssText = `--tone:${hue};--on:${on};--i:0`;
+        tile.innerHTML = `<input type="checkbox" name="tags"><span class="dir-fill" aria-hidden="true"></span>${emblems.content.querySelector(`[data-variant="${Math.floor(code / 6) % 6}"]`).outerHTML}<i class="dir-check" aria-hidden="true">${grid.querySelector('.dir-check')?.innerHTML || ''}</i><b></b><small>暂时没有任务</small>`;
+        tile.querySelector('input').value = tag;
+        tile.querySelector('b').textContent = tag;
+        grid.insertBefore(tile, add.closest('.dir'));
+        box = tile.querySelector('input');
+      }
+      if (!box.checked) {
+        if (chosen().length >= limit) { feel.toast(`<span>最多选 ${limit} 个方向，先取消一个</span>`); return; }
+        box.checked = true;
+        react(box.closest('.dir'), true);
+        changed();
+      }
+    });
+    dirs.querySelector('[data-dirs-more]')?.addEventListener('click', event => {
+      const open = panel.classList.toggle('more');
+      event.currentTarget.setAttribute('aria-expanded', String(open));
+      event.currentTarget.querySelector('span').textContent = open ? '收起' : event.currentTarget.dataset.label || event.currentTarget.querySelector('span').textContent;
+    });
+    const moreButton = dirs.querySelector('[data-dirs-more]');
+    if (moreButton) moreButton.dataset.label = moreButton.querySelector('span').textContent;
+  }
+
+  function crc32(text) {
+    let crc = -1;
+    for (const byte of new TextEncoder().encode(text)) {
+      crc ^= byte;
+      for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return (crc ^ -1) >>> 0;
+  }
+  function escape(text) {
+    return String(text).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  }
 
   /* ---------- 发布页：边填边看「发现」里的样子 ---------- */
   const editor = document.querySelector('[data-editor]');
@@ -48,7 +236,6 @@
     const effort = {light: '半天内', standard: '一两天', major: '一周左右'};
     const tagsInput = editor.querySelector('[name=tags]');
     let lastKey = '';
-    const escape = text => text.replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     const update = () => {
       const value = name => editor.querySelector(`[name=${name}]:checked`)?.value || editor.querySelector(`[name=${name}]`)?.value || '';
       const importance = value('importance') || 'standard';

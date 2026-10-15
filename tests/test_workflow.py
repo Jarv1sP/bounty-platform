@@ -1,8 +1,10 @@
 import concurrent.futures
+import json
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from app import create_app
 from bounty.db import connect, initialize
 from bounty import discover, progress
@@ -231,13 +233,15 @@ class WorkflowTest(unittest.TestCase):
     def test_demo_database_is_independent_and_idempotent_safe(self):
         from bounty.demo import seed_demo
         path = str(Path(self.temp.name) / 'demo.sqlite3')
-        self.assertEqual(seed_demo(path), 24)
+        self.assertEqual(seed_demo(path), 27)
         with self.assertRaises(ValueError):
             seed_demo(path)
         with connect(path) as db:
             counts = dict(db.execute('SELECT status,COUNT(*) FROM tasks GROUP BY status').fetchall())
-            self.assertEqual(counts, {'open': 15, 'active': 3, 'review': 2, 'done': 4})
-            self.assertEqual(db.execute('SELECT COUNT(*) FROM honors').fetchone()[0], 4)
+            self.assertEqual(counts, {'open': 15, 'active': 3, 'review': 2, 'done': 7})
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM honors').fetchone()[0], 7)
+            # 演示里有一部分勋章已经拆开过，其余留在信箱里等颁奖
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM honors WHERE seen_at IS NULL').fetchone()[0], 4)
             self.assertEqual(db.execute('SELECT COUNT(DISTINCT project) FROM tasks').fetchone()[0], 5)
             self.assertFalse(db.execute('PRAGMA foreign_key_check').fetchall())
         app = create_app({'TESTING': True, 'DATABASE': path, 'SECRET_KEY': 'test'})
@@ -247,7 +251,13 @@ class WorkflowTest(unittest.TestCase):
         # 发现页默认只列可认领的任务，一页 12 个
         self.assertEqual(response.text.count('data-task='), 15)
         self.assertEqual(response.text.count('class="wall-zone"'), 2)
-        self.assertEqual(response.text.count('data-pick='), 3)
+        # 演示账号「认领人」选过方向：两排推荐各三张，互不重复
+        picks = response.text.split('data-lane-body="want"')[1]
+        want, past = picks.split('data-lane-body="past"')
+        self.assertEqual(want.count('data-pick='), 3)
+        self.assertEqual(past.count('data-pick='), 3)
+        ids = lambda html: {part.split('"')[0] for part in html.split('data-pick="')[1:]}
+        self.assertFalse(ids(want) & ids(past.split('class="wall"')[0]))
 
     def test_auth_csrf_and_persistence(self):
         client = self.app.test_client()
@@ -379,6 +389,98 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('入门文档', [task['title'] for task in owner['unclaimed']])
         page = self.clients[1].get('/mine').text
         self.assertIn('被退回，等你改', page)
+
+    def test_two_lanes_keep_picked_directions_apart_from_history(self):
+        data_task = create_task(self.path, 1, {**self.data, 'title': '清洗比赛提交记录', 'description': '去掉重复提交', 'tags': '数据'})
+        self.finish(data_task)
+        more_data = create_task(self.path, 1, {**self.data, 'title': '清洗题目标签', 'description': '去掉重复标签', 'tags': '数据'})
+        graph = create_task(self.path, 1, {**self.data, 'title': '讲一次图论', 'tags': '图论'})
+        set_interests(self.path, 2, '图论')
+        with connect(self.path) as db:
+            want = discover.recommend(db, 2, limit=10, lane='want')
+            past = discover.recommend(db, 2, limit=10, lane='past', exclude={pick['task']['id'] for pick in want})
+            self.assertEqual([pick['task']['id'] for pick in want], [graph])
+            self.assertEqual(want[0]['reasons'][0], ('interest', '你选了「图论」'))
+            self.assertNotIn(graph, [pick['task']['id'] for pick in past])
+            # 第二排先放和你经历有关的任务，理由里不出现"你选了"
+            self.assertEqual(past[0]['task']['id'], more_data)
+            self.assertEqual(past[0]['reasons'][0][0], 'skill')
+            self.assertFalse(any(kind == 'interest' for pick in past for kind, _ in pick['reasons']))
+            self.assertEqual(discover.past_tags(db, 2), [('数据', 1)])
+            options = {option['tag']: option for option in discover.directions(db, ['图论', '冷门方向'])}
+            self.assertTrue(options['图论']['chosen'])
+            self.assertEqual(options['图论']['example'], '讲一次图论')
+            self.assertEqual(options['冷门方向']['count'], 0)
+        worker = self.clients[1]
+        home = worker.get('/').text
+        self.assertIn('按你选的方向', home)
+        self.assertIn('你常做', home)
+        self.assertIn('data-lane-body="want"', worker.get('/picks/want').text)
+        self.assertIn('讲一次图论', worker.get('/picks/want').text)
+        self.assertNotIn('讲一次图论', worker.get('/picks/past').text)
+        self.assertEqual(worker.get('/picks/other').status_code, 404)
+
+    def test_directions_can_be_repicked_any_time(self):
+        worker = self.clients[1]
+        worker.get('/')
+        with worker.session_transaction() as session:
+            csrf = session['csrf']
+        saved = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['图论', '数据']}, headers={'Accept': 'application/json'})
+        self.assertEqual(saved.json, {'interests': ['图论', '数据']})
+        saved = worker.post('/me/interests', data={'csrf': csrf, 'tags': ['论文']}, headers={'Accept': 'application/json'})
+        self.assertEqual(saved.json, {'interests': ['论文']})
+        cleared = worker.post('/me/interests', data={'csrf': csrf}, headers={'Accept': 'application/json'})
+        self.assertEqual(cleared.json, {'interests': []})
+        too_many = worker.post('/me/interests', data={'csrf': csrf, 'tags': [str(i) for i in range(9)]}, headers={'Accept': 'application/json'})
+        self.assertEqual(too_many.status_code, 400)
+        self.assertIn('最多 8 个方向', too_many.json['error'])
+        # 方向条一直都在，不只给新人看
+        self.post(worker, '/me/interests', {'tags': '图论'})
+        self.assertIn('今天想往哪儿使劲', worker.get('/').text)
+
+    def test_times_follow_each_viewers_own_time_zone(self):
+        moment = datetime.now(timezone.utc) + timedelta(days=3)
+        new_york = moment.astimezone(ZoneInfo('America/New_York'))
+        owner = self.clients[0]
+        owner.set_cookie('tz', 'America/New_York')
+        self.post(owner, '/tasks/new', {**self.data, 'tags': '文档', 'title': '纽约时间截止',
+                                         'deadline': new_york.replace(tzinfo=None).isoformat(timespec='minutes')})
+        with connect(self.path) as db:
+            stored = db.execute("SELECT deadline FROM tasks WHERE title='纽约时间截止'").fetchone()[0]
+            task_id = db.execute("SELECT id FROM tasks WHERE title='纽约时间截止'").fetchone()[0]
+        self.assertLess(abs((datetime.fromisoformat(stored) - moment).total_seconds()), 61)
+        worker = self.clients[1]
+        worker.set_cookie('tz', 'Asia/Tokyo')
+        tokyo = moment.astimezone(ZoneInfo('Asia/Tokyo'))
+        self.assertIn(f'{tokyo:%m/%d %H:%M}', worker.get(f'/tasks/{task_id}').text)
+        self.assertIn(f'{new_york:%m/%d %H:%M}', owner.get(f'/tasks/{task_id}').text)
+        self.assertIn('data-tz="Asia/Tokyo"', worker.get('/').text)
+        # 不认识的时区退回团队时区，也不会出错
+        worker.set_cookie('tz', '../../etc/passwd')
+        self.assertIn('data-tz=""', worker.get('/').text)
+        with connect(self.path) as db:
+            for zone_name in ('Pacific/Kiritimati', 'Pacific/Pago_Pago'):
+                week = discover.week_summary(db, ZoneInfo(zone_name))
+                self.assertEqual(week['today'], datetime.now(ZoneInfo(zone_name)).weekday())
+
+    def test_medal_case_lists_counts_history_and_where_to_get_more(self):
+        self.finish(self.task_id)
+        second = create_task(self.path, 1, {**self.data, 'title': '第二份文档'})
+        self.finish(second, body='写得很清楚')
+        create_task(self.path, 1, {**self.data, 'title': '一个加急的大任务', 'importance': 'major', 'urgency': 'urgent'})
+        page = self.clients[1].get('/honors').text
+        self.assertIn('data-count="2"', page)
+        self.assertIn('class="tile locked" data-collection-key="major-urgent"', page)
+        self.assertIn('1 个任务能拿', page)
+        case = json.loads(page.split('<script type="application/json" id="case-data">')[1].split('</script>')[0])
+        self.assertEqual(case['standard-normal']['count'], 2)
+        self.assertEqual(case['standard-normal']['back']['quote'], '写得很清楚')
+        self.assertEqual([item['title'] for item in case['standard-normal']['history']], ['第二份文档', '入门文档'])
+        self.assertEqual(case['major-urgent']['can_get'], 1)
+        self.assertIsNone(case['major-urgent']['back'])
+        self.assertIn('class="inspect"', page)
+        self.assertIn('Lv.', self.clients[1].get('/').text)
+        self.assertIn('mini-case', self.clients[1].get('/').text)
 
 
 if __name__ == '__main__':

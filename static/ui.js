@@ -285,6 +285,8 @@
       data = await response.json();
     } catch { return; }
     if (!data.awards?.length) return;
+    // 柜子（case.js）要先听到"开始颁奖"，等页面上的脚本都跑完再开始
+    if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once: true}));
     const template = document.querySelector('template[data-medal-template]');
     const medalSvg = key => template.content.querySelector(`[data-key="${key}"]`).innerHTML;
     const items = dialog.querySelector('[data-award-items]');
@@ -448,24 +450,16 @@
       timers.forEach(clearTimeout);
       skipped = true;
       dialog.close();
-      // 收进收集册：对应的格子标上「新」，从对话框的位置飞过去
-      const keys = [...new Set(awards.map(a => a.medal_key))];
-      keys.forEach((key, i) => {
-        const tile = document.querySelector(`[data-collection-key="${key}"]`);
-        if (!tile) return;
-        tile.classList.add('collection-new');
-        tile.classList.remove('locked');
-        const icon = tile.querySelector('summary .medal');
-        if (icon && icon.classList.contains('ghost')) icon.outerHTML = medalSvg(key);
-        play(tile.querySelector('summary .medal'), [{transform: 'scale(.4)', opacity: 0}, {transform: 'scale(1.15,.9)', offset: .6}, {transform: 'scale(1)', opacity: 1}], {duration: 420, easing: B, delay: 120 + i * 80});
-      });
+      // 收进勋章柜：case.js 让它们从屏幕中央飞回各自的格子
+      document.dispatchEvent(new CustomEvent('bounty:collected', {detail: {awards}}));
       const mailbox = document.querySelector('.mailbox');
       mailbox?.classList.remove('has-mail');
       mailbox?.querySelector('b')?.remove();
-      toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进收集册</span><em>+${xpTotal} 经验${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
+      toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
     }
 
     dialog.showModal();
+    document.dispatchEvent(new CustomEvent('bounty:reveal-start', {detail: {awards}}));
     sfx('stamp');
     next();
   }

@@ -1,0 +1,55 @@
+{% from 'components/icon.html' import icon %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import ava, csrf %}
+
+{# 色卡上的装饰：只用白和墨，组合点、线、面 #}
+{% macro field_art(v) -%}
+<svg class="pick-art" viewBox="0 0 400 180" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+{%- if v % 3 == 0 -%}
+<path class="fl" style="--fx:8px;--fy:-6px" d="M400 180H250A150 150 0 0 1 400 30Z" fill="#fff"/><circle class="fl" style="--fx:-10px;--fy:6px" cx="318" cy="44" r="14" fill="#1B1D2A"/>
+<g class="fl" style="--fx:-14px"><circle cx="196" cy="44" r="4.5" fill="#fff"/><circle cx="212" cy="44" r="4.5" fill="#fff"/><circle cx="226" cy="44" r="4.5" fill="#fff"/><path d="M236 44H286" stroke="#fff" stroke-width="9" stroke-linecap="round"/></g>
+{%- elif v % 3 == 1 -%}
+<circle class="fl" style="--fx:6px;--fy:6px" cx="372" cy="0" r="104" fill="#fff"/><rect class="fl" style="--fx:-8px" x="230" y="112" width="96" height="10" rx="5" fill="#1B1D2A"/>
+<g class="fl" style="--fy:-8px">{% for x in (236, 254, 272) %}{% for y in (148, 166) %}<circle cx="{{ x }}" cy="{{ y }}" r="4.5" fill="#fff"/>{% endfor %}{% endfor %}</g>
+{%- else -%}
+<path class="fl" style="--fx:10px" d="M300 180 360 40H400V180Z" fill="#fff"/><path class="fl" style="--fx:-6px;--fy:4px" d="M268 180 328 40" stroke="#1B1D2A" stroke-width="8" stroke-linecap="round"/><circle class="fl" style="--fx:-12px;--fy:-6px" cx="236" cy="58" r="11" fill="#1B1D2A"/>
+{%- endif -%}
+</svg>
+{%- endmacro %}
+
+{# 推荐卡：贴纸写"为什么是你"，卡上直接能认领 #}
+{% macro pick_card(pick, i, lane) -%}
+{%- set task = pick.task -%}{%- set key = medal_key(task) -%}{%- set left = due_label(task.deadline) -%}
+{%- set sticker_colors = {'unlock': '#F39800', 'skill': '#00A27A', 'similar': '#00A27A', 'project': '#2866B1', 'new-project': '#2866B1',
+                          'interest': '#00AEE0', 'urgent': '#E54465', 'quick': '#00A27A'} -%}
+<article class="pick" style="--i:{{ i }};--hue:{{ medals[key].hue }}" data-pick="{{ task.id }}">
+  <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
+  <div class="pick-field">{{ field_art(i + (1 if lane == 'want' else 0)) }}
+    <span class="sticker" style="--sticker:{{ sticker_colors.get(pick.reasons[0][0], '#1B1D2A') }}"><i></i>{{ pick.reasons[0][1] }}</span>
+    <form class="pick-x" method="post" action="{{ url_for('dismiss_task', task_id=task.id) }}">{{ csrf() }}<button title="不感兴趣，少推荐这类" aria-label="不感兴趣：{{ task.title }}">{{ icon('close') }}</button></form>
+  </div>
+  {{ medal(key, 'pick-medal', label='完成可得 ' ~ medals[key].name) }}
+  <div class="pick-body">
+    <span class="kicker">{{ task.project or (pick.tags[0] if pick.tags else '') }}<span>·</span>{{ effort_labels[task.importance] }}<span>·</span><span class="{{ 'soon' if left[1] }}">{{ left[0] }}</span></span>
+    <h3>{{ task.title }}</h3>
+    <p class="goal">{{ task.description }}</p>
+    <div class="pick-foot">{{ ava(task.owner_name, task.owner_id) }}<span>{{ task.owner_name }}</span><span class="xp">+{{ task_xp(key) }} 经验</span>
+      <form method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-quick-claim>{{ csrf() }}<button class="btn btn-sm">认领</button></form></div>
+  </div>
+</article>
+{%- endmacro %}
+
+{# 一排推荐的内容。换一批、改方向时整块换掉，所以空状态也在这里 #}
+{% macro lane_body(lane, picks, interests) -%}
+<div class="lane-body" data-lane-body="{{ lane }}">
+{%- if picks -%}
+  <div class="pick-row">{% for pick in picks %}{{ pick_card(pick, loop.index0, lane) }}{% endfor %}</div>
+{%- elif lane == 'want' and not interests -%}
+  <div class="lane-empty"><i></i><i></i><i></i><p><b>在上面点一个方向</b><span>这一排马上换成那个方向的任务。</span></p></div>
+{%- elif lane == 'want' -%}
+  <div class="lane-empty"><i></i><i></i><i></i><p><b>你选的方向现在没有能接的任务</b><span>多点几个方向，或者看看下面按你做过的推荐。</span></p></div>
+{%- else -%}
+  <div class="empty panel"><b>现在没有能认领的任务</b><span>发一个吧，或者去看看大家在做什么。</span><a class="btn btn-sm" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a></div>
+{%- endif -%}
+</div>
+{%- endmacro %}

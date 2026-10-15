@@ -1,0 +1,60 @@
+{% from 'components/icon.html' import icon %}
+
+{# 方向卡的小图：六种点线面构图，颜色和构图都由标签文字算出（见 app.tag_look），board.js 里有同样的算法给新写的方向用。
+   e1 = 方向色（选中后变白），e2 = 墨色。d-a 带 --i，选中时按顺序弹出来。 #}
+{% macro emblem_shapes(variant) -%}
+{%- if variant == 0 -%}
+<circle class="e1 d-a" style="--i:0" cx="38" cy="28" r="20"/><circle class="e2 d-a" style="--i:1" cx="14" cy="50" r="7"/>
+{%- elif variant == 1 -%}
+<circle class="e2 d-a" style="--i:0" cx="10" cy="32" r="6"/><circle class="e1 d-a" style="--i:1" cx="23" cy="32" r="3.6"/><circle class="e1 d-a" style="--i:2" cx="33" cy="32" r="3.6"/><rect class="e1 d-a d-grow" style="--i:3" x="40" y="28" width="20" height="8" rx="4"/>
+{%- elif variant == 2 -%}
+<path class="e1 d-a" style="--i:0" d="M6 58A44 44 0 0 1 50 14V58Z"/><rect class="e2 d-a" style="--i:1" x="54" y="6" width="5" height="52" rx="2.5"/>
+{%- elif variant == 3 -%}
+<path class="e1s d-a" style="--i:0" d="M12 54 42 10" stroke-width="10" stroke-linecap="round"/>{% for x, y in ((48, 42), (58, 42), (48, 52), (58, 52)) %}<circle class="e2 d-a" style="--i:{{ loop.index }}" cx="{{ x }}" cy="{{ y }}" r="3.6"/>{% endfor %}
+{%- elif variant == 4 -%}
+<path class="e1 d-a" style="--i:0" d="M4 60A28 28 0 0 1 60 60Z"/><circle class="e1 d-a" style="--i:1" cx="30" cy="14" r="4"/><circle class="e2 d-a" style="--i:2" cx="48" cy="14" r="7"/>
+{%- else -%}
+<rect class="e1 d-a" style="--i:0" x="6" y="22" width="32" height="32"/><circle class="e2 d-a" style="--i:1" cx="46" cy="22" r="12"/>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro dir_tile(option, i, shown=11) -%}
+{%- set look = tag_look(option.tag) -%}
+<label class="dir{{ ' dir-extra' if i >= shown }}" style="--tone:{{ look.hue }};--on:{{ look.on }};--i:{{ i }}">
+  <input type="checkbox" name="tags" value="{{ option.tag }}" {% if option.chosen %}checked{% endif %}>
+  <span class="dir-fill" aria-hidden="true"></span>
+  <svg class="dir-art" viewBox="0 0 64 64" aria-hidden="true">{{ emblem_shapes(look.variant) }}</svg>
+  <i class="dir-check" aria-hidden="true">{{ icon('check') }}</i>
+  <b>{{ option.tag }}</b>
+  <small>{{ option.count ~ ' 个任务等人' if option.count else '暂时没有任务' }}</small>
+  {% if option.example %}<em>如「{{ option.example }}」</em>{% endif %}
+</label>
+{%- endmacro %}
+
+{# 发现页最上面的方向条：每次进来都能重新点，点了立刻重排「按你选的方向」那一排；不用 JS 时就是一个普通表单 #}
+{% macro direction_bar(options, interests, shown=11) -%}
+<section class="dirs panel" id="dirs" aria-labelledby="dirs-title">
+  <form method="post" action="{{ url_for('interests') }}" data-dirs>
+    <input type="hidden" name="csrf" value="{{ session.csrf }}">
+    <header class="dirs-head">
+      <h2 id="dirs-title">今天想往哪儿使劲？</h2>
+      <p>点几个方向，下面那排马上换；每次来都可以重新点。</p>
+      <div class="dirs-side">
+        <span class="dirs-count" aria-live="polite">已选 <b class="num" data-dirs-count>{{ interests|length }}</b><span class="num"> / {{ max_interests }}</span></span>
+        <button type="button" class="btn btn-ghost btn-sm" data-dirs-clear {% if not interests %}hidden{% endif %}>清空</button>
+        <button class="btn btn-sm" data-dirs-save>保存</button>
+      </div>
+    </header>
+    <div class="dir-grid" data-dir-grid>
+      {% for option in options %}{{ dir_tile(option, loop.index0, shown) }}{% endfor %}
+      <div class="dir dir-add" data-dir-add>
+        <span class="dir-plus" aria-hidden="true">{{ icon('plus') }}</span>
+        <input name="tags" maxlength="16" placeholder="自己写一个" aria-label="自己写一个方向，回车加上" enterkeyhint="done" autocomplete="off">
+        <small>回车加上</small>
+      </div>
+    </div>
+    {% if options|length > shown %}<button type="button" class="dirs-more" data-dirs-more aria-expanded="false">{{ icon('down') }}<span>还有 {{ options|length - shown }} 个方向</span></button>{% endif %}
+    <template data-emblems>{% for v in range(6) %}<svg data-variant="{{ v }}" class="dir-art" viewBox="0 0 64 64" aria-hidden="true">{{ emblem_shapes(v) }}</svg>{% endfor %}</template>
+  </form>
+</section>
+{%- endmacro %}

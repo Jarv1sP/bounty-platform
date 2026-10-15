@@ -30,7 +30,7 @@
 </div>
 {%- endmacro %}
 
-{# 任务卡：点整张卡进详情；能补上收集册空格的任务会轻轻跳一下，贴「新勋章」 #}
+{# 任务卡：点整张卡进详情；能补上勋章柜空格的任务会轻轻跳一下，贴「新勋章」 #}
 {% macro task_card(task, tags, earned, i=0) -%}
 {%- set key = medal_key(task) -%}
 {%- set wants = task.status == 'open' and key not in earned -%}

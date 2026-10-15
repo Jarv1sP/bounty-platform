@@ -3,7 +3,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from .honors import MEDALS, medal_key
-from .service import now
+from .service import CATEGORIES, now
 
 
 def _parse(value):
@@ -45,7 +45,8 @@ def _cosine(a, b):
 
 
 def profile(db, user_id):
-    """What this person tends to pick up, built only from their own history, chosen interests and dismissals."""
+    """What this person tends to pick up. History (tags, projects, wording) and the directions they picked stay
+    apart, so the home page can show one lane for each; dismissals lower both."""
     current = datetime.now(timezone.utc)
     history = db.execute('''SELECT t.id,t.title,t.description,t.project,h.awarded_at at,1.0 base FROM honors h
         JOIN tasks t ON t.id=h.task_id WHERE h.user_id=?
@@ -64,8 +65,6 @@ def profile(db, user_id):
         if row['base'] == 1.0:
             done_texts.append((row['title'], _grams(row['title'] + row['description'])))
     interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=?', (user_id,))]
-    for tag in interests:
-        tag_weight[tag] += 1.5
     dismissed = {row['task_id'] for row in db.execute('SELECT task_id FROM dismissals WHERE user_id=?', (user_id,))}
     for tags in tags_by_task(db, list(dismissed)).values():
         for tag in tags:
@@ -77,12 +76,17 @@ def profile(db, user_id):
                 dismissed=dismissed, done_texts=done_texts, text=texts, earned=earned_keys(db, user_id))
 
 
-def recommend(db, user_id, limit=3, batch=0):
+def recommend(db, user_id, limit=3, batch=0, lane='all', exclude=()):
     """Score every claimable task for one person and say why. Nothing is hard-coded per task or per category:
-    new projects, tags and kinds of work join in automatically through their tags, project and wording."""
+    new projects, tags and kinds of work join in automatically through their tags, project and wording.
+
+    lane='want'  only tasks in the directions this person picked (re-pickable any time on the home page);
+    lane='past'  only their own history: tags they finished, projects they joined, tasks worded like theirs;
+                 with no history yet it falls back to easy starters and new medals;
+    lane='all'   both, used to explain a single task."""
     me = profile(db, user_id)
     current = datetime.now(timezone.utc)
-    tasks = [task for task in open_tasks(db, user_id) if task['id'] not in me['dismissed']]
+    tasks = [task for task in open_tasks(db, user_id) if task['id'] not in me['dismissed'] and task['id'] not in exclude]
     tags_of = tags_by_task(db, [task['id'] for task in tasks])
     project_start = {row['project']: row['first'] for row in db.execute(
         'SELECT project,MIN(created_at) first FROM tasks WHERE project IS NOT NULL GROUP BY project')}
@@ -90,31 +94,43 @@ def recommend(db, user_id, limit=3, batch=0):
     ranked = []
     for task in tasks:
         key, tags, reasons = medal_key(task), tags_of[task['id']], []
-        score = 0.0
-        # 1) 标签：你做过、正在做或说过想做的方向
-        tag_score = sum(max(me['tags'][tag], 0) for tag in tags)
-        if tag_score:
-            score += min(tag_score, 3)
-            best = max(tags, key=lambda tag: me['tags'][tag])
-            if me['tag_count'][best]:
-                reasons.append((min(tag_score, 3), 'skill', f'你做过 {me["tag_count"][best]} 个「{best}」任务'))
-            elif best in me['interests']:
-                reasons.append((min(tag_score, 3), 'interest', f'你说过想做「{best}」'))
-        # 2) 项目：你参与过的项目，或者刚接进来的新项目
-        if task['project'] and me['projects'][task['project']]:
-            score += min(me['projects'][task['project']], 2) * 0.8
-            reasons.append((1.5, 'project', f'你参与过「{task["project"]}」'))
-        elif task['project'] and current - _parse(project_start[task['project']]) < timedelta(days=7):
+        score, personal = 0.0, False
+        # 1) 这次选的方向：命中越多越靠前
+        if lane in ('want', 'all'):
+            wanted = [tag for tag in tags if tag in me['interests']]
+            if wanted:
+                score += min(len(wanted), 2) * 2
+                personal = True
+                reasons.append((3, 'interest', f'你选了「{wanted[0]}」' + (f'和「{wanted[1]}」' if len(wanted) > 1 else '')))
+            elif lane == 'want':
+                continue
+        if lane in ('past', 'all'):
+            # 2) 标签：你做过、正在做的
+            tag_score = sum(max(me['tags'][tag], 0) for tag in tags)
+            if tag_score:
+                score += min(tag_score, 3)
+                best = max(tags, key=lambda tag: me['tags'][tag])
+                if me['tag_count'][best]:
+                    personal = True
+                    reasons.append((min(tag_score, 3), 'skill', f'你做过 {me["tag_count"][best]} 个「{best}」任务'))
+            # 3) 项目：你参与过的项目
+            if task['project'] and me['projects'][task['project']]:
+                score += min(me['projects'][task['project']], 2) * 0.8
+                personal = True
+                reasons.append((1.5, 'project', f'你参与过「{task["project"]}」'))
+            # 4) 文字相似：和你做过的任务说的是同一类事
+            grams = _grams(task['title'] + task['description'])
+            similarity = _cosine(grams, me['text'])
+            if similarity > 0.12:
+                score += similarity * 3
+                personal = True
+                closest = max(me['done_texts'], key=lambda item: _cosine(grams, item[1]))[0]
+                reasons.append((similarity * 3, 'similar', f'和你做过的「{closest}」很像'))
+        # 5) 人人都成立的：新项目、勋章、时机
+        if task['project'] and not me['projects'][task['project']] \
+                and current - _parse(project_start[task['project']]) < timedelta(days=7):
             score += 0.8
             reasons.append((0.8, 'new-project', f'新项目「{task["project"]}」'))
-        # 3) 文字相似：和你做过的任务说的是同一类事
-        grams = _grams(task['title'] + task['description'])
-        similarity = _cosine(grams, me['text'])
-        if similarity > 0.12:
-            score += similarity * 3
-            closest = max(me['done_texts'], key=lambda item: _cosine(grams, item[1]))[0]
-            reasons.append((similarity * 3, 'similar', f'和你做过的「{closest}」很像'))
-        # 4) 勋章和时机
         if key not in me['earned']:
             score += 2
             reasons.append((2, 'unlock', '拿到你的第一枚勋章' if not me['earned'] else f'能解锁「{MEDALS[key]["name"]}」'))
@@ -130,33 +146,72 @@ def recommend(db, user_id, limit=3, batch=0):
         if current - _parse(task['created_at']) < timedelta(days=2):
             score += 0.3
             reasons.append((0.3, 'fresh', '刚刚发布'))
-        reasons.append((0, 'due', f'还有 {left.days} 天截止' if left.days else '今天截止'))
-        # 卡片上先说和"你"有关的理由（做过、想做、参与过、内容像）：它们最能说明为什么是你，而不是人人都成立的那句
-        personal = {'skill', 'interest', 'project', 'similar'}
-        reasons.sort(key=lambda reason: -(reason[0] + (1.5 if reason[1] in personal else 0)))
-        ranked.append((-score, task['deadline'], task['id'], task, [(kind, text) for _, kind, text in reasons], tags))
-    ranked.sort(key=lambda item: item[:3])
+        reasons.append((0, 'due', due_text(left)))
+        # 卡片上先说和"你"有关的理由（选了、做过、参与过、内容像）：它们最能说明为什么是你，而不是人人都成立的那句
+        mine = {'skill', 'interest', 'project', 'similar'}
+        reasons.sort(key=lambda reason: -(reason[0] + (1.5 if reason[1] in mine else 0)))
+        # 「按你做过的」里，和你经历有关的任务排在只是"人人都适合"的任务前面
+        ranked.append((lane == 'past' and not personal, -score, task['deadline'], task['id'], task,
+                       [(kind, text) for _, kind, text in reasons], tags))
+    ranked.sort(key=lambda item: item[:4])
     if not ranked:
         return []
     start = (batch * limit) % len(ranked)
-    pool = [item[3:] for item in ranked[start:] + ranked[:start]]
+    pool = [item[4:] for item in ranked[start:] + ranked[:start]]
     # 三张卡尽量各给一个不同的理由、不同的勋章，读起来才像"按你挑的"而不是同一句话说三遍
     picks, used_reasons, used_keys, taken = [], set(), set(), set()
     for strict in (True, False):
         for task, reasons, tags in pool:
             if task['id'] in taken:
                 continue
-            fresh = [reason for reason in reasons if reason[0] not in used_reasons]
+            # 「按你选的方向」第一句永远是命中的方向，几张卡轮着照顾到每个选了的方向；另外两条路按理由种类轮换
+            if lane == 'want':
+                fresh = [reason for reason in reasons[:1] if reason[1] not in used_reasons]
+            else:
+                fresh = [reason for reason in reasons if reason[0] not in used_reasons]
             if strict and (not fresh or medal_key(task) in used_keys):
                 continue
             chosen = (fresh or reasons)[0]
             picks.append(dict(task=task, tags=tags, reasons=[chosen] + [reason for reason in reasons if reason != chosen]))
-            used_reasons.add(chosen[0])
+            used_reasons.add(chosen[1] if lane == 'want' else chosen[0])
             used_keys.add(medal_key(task))
             taken.add(task['id'])
             if len(picks) == limit:
                 return picks
     return picks
+
+
+def due_text(left):
+    """Time left, without calendar words: "today" means different days to teammates in different time zones."""
+    if left.total_seconds() < 0:
+        return '已截止'
+    if left.days:
+        return f'还有 {left.days} 天截止'
+    hours = int(left.total_seconds() // 3600)
+    return f'还有 {hours} 小时截止' if hours else '不到 1 小时截止'
+
+
+def directions(db, chosen=(), limit=18):
+    """What the direction picker offers: tags on open tasks (busiest first, with one example task),
+    plus whatever this person already picked, plus starter tags when the board is nearly empty."""
+    rows = db.execute("SELECT id,title FROM tasks WHERE status='open' ORDER BY created_at DESC,id DESC").fetchall()
+    tags_of = tags_by_task(db, [row['id'] for row in rows])
+    count, example = Counter(), {}
+    for row in rows:
+        for tag in tags_of[row['id']]:
+            count[tag] += 1
+            example.setdefault(tag, row['title'])
+    tags = [tag for tag, _ in count.most_common(limit)]
+    tags += [tag for tag in chosen if tag not in tags]
+    tags += [tag for tag in CATEGORIES if tag not in tags][:max(0, 6 - len(tags))]
+    return [dict(tag=tag, count=count[tag], example=example.get(tag), chosen=tag in chosen) for tag in tags]
+
+
+def past_tags(db, user_id, limit=3):
+    """The tags this person has actually finished, most first: the visible basis of the "按你做过的" lane."""
+    return [(row['tag'], row['n']) for row in db.execute(
+        'SELECT tag,COUNT(*) n FROM honors h JOIN task_tags x ON x.task_id=h.task_id WHERE h.user_id=? '
+        'GROUP BY tag ORDER BY n DESC,MAX(h.awarded_at) DESC LIMIT ?', (user_id, limit))]
 
 
 def team_feed(db, viewer_id, limit=6):
@@ -173,18 +228,19 @@ def team_feed(db, viewer_id, limit=6):
     return sorted([dict(row) for row in (*done, *posted)], key=lambda row: row['at'], reverse=True)[:limit]
 
 
-def week_summary(db):
-    """Team completions this week (Monday UTC) against last week, plus a per-day histogram."""
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+def week_summary(db, tz=timezone.utc):
+    """Team completions this week against last week, plus a per-day histogram, in the viewer's own calendar."""
+    today = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
     monday = today - timedelta(days=today.weekday())
     last_monday = monday - timedelta(days=7)
     days = [0] * 7
     this_week = last_week = 0
-    for row in db.execute("SELECT created_at FROM events WHERE kind='accept' AND created_at>=?", (last_monday.isoformat(),)):
-        moment = _parse(row['created_at'])
+    since = last_monday.astimezone(timezone.utc).isoformat()   # 库里存的是 UTC 字符串，比较前先换算
+    for row in db.execute("SELECT created_at FROM events WHERE kind='accept' AND created_at>=?", (since,)):
+        moment = _parse(row['created_at']).astimezone(tz)
         if moment >= monday:
             this_week += 1
-            days[(moment - monday).days] += 1
+            days[(moment.date() - monday.date()).days] += 1
         else:
             last_week += 1
     return dict(count=this_week, previous=last_week, days=days, today=today.weekday())

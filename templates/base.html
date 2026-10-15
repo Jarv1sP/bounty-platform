@@ -1,7 +1,7 @@
 {% from 'components/icon.html' import icon %}
 {% from 'components/ui.html' import logo, ava %}
 <!doctype html>
-<html lang="zh-CN" data-motion="on">
+<html lang="zh-CN" data-motion="on" data-tz="{{ g.get('tz_name', '') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -11,11 +11,21 @@
   <script>
     // 在样式生效前定下动效开关，避免先动一下再停
     try { if (localStorage.getItem('bounty-motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.dataset.motion = 'off'; } catch (e) {}
+    // 时区：把浏览器所在的时区告诉服务器，页面上的时间都按看的人当地时间显示。
+    // 这一页如果还是按别的时区画的（第一次来、换了地方），就带着正确的时区重新拿一次，每个时区最多一次。
+    try {
+      var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz && tz !== document.documentElement.dataset.tz) {
+        document.cookie = 'tz=' + encodeURIComponent(tz) + ';path=/;max-age=31536000;samesite=lax';
+        {% if g.user and request.method == 'GET' %}if (sessionStorage.getItem('bounty-tz') !== tz) { sessionStorage.setItem('bounty-tz', tz); location.reload(); }{% endif %}
+      }
+    } catch (e) {}
   </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='board.css') }}">
   <script src="{{ url_for('static', filename='ui.js') }}" defer></script>
   <script src="{{ url_for('static', filename='board.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
   <a class="skip" href="#main">跳到正文</a>

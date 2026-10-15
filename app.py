@@ -1,30 +1,43 @@
 import os
 import secrets
 import sqlite3
+import zlib
 from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for, jsonify
+from urllib.parse import unquote
+from flask import Flask, abort, flash, g, redirect, render_template, render_template_string, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
 from bounty import discover, progress
 from bounty.db import connect, initialize
 from bounty.honors import EFFORT, IMPORTANCE, URGENCY, MEDALS, medal_key
-from bounty.service import (CATEGORIES, STATUSES, KINDS, TEAM_TZ, InvalidAction, act, clap, create_task, dismiss, now,
-                            required, set_interests)
+from bounty.service import (CATEGORIES, STATUSES, KINDS, MAX_INTERESTS, TEAM_TZ, InvalidAction, act, clap, create_task,
+                            dismiss, now, required, set_interests, zone)
 
 PAGE_SIZE = 12
 
 
 def due_label(deadline):
-    """Countdown text for cards: (text, is_urgent_looking)."""
+    """Countdown text for cards: (text, is_urgent_looking). Counts hours, not calendar days, so it reads the same
+    for teammates in every time zone."""
     moment = datetime.fromisoformat(deadline)
     left = (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)) - datetime.now(timezone.utc)
     if left.total_seconds() < 0:
         return '已截止', True
     if left.days == 0:
-        return '今天截止', True
+        hours = int(left.total_seconds() // 3600)
+        return (f'剩 {hours} 小时' if hours else '不到 1 小时'), True
     return f'剩 {left.days} 天', left.days < 2
 PRAISE = ('靠谱，一次就过', '超出预期', '救了急', '写得很清楚')
+# 方向卡的颜色和图形：按标签文字算出来，同一个方向在谁的屏幕上都长一个样。第二项是压在这个颜色上的字色。
+TONES = (('#E54465', '#fff'), ('#F39800', '#1B1D2A'), ('#F2B700', '#1B1D2A'),
+         ('#00A27A', '#fff'), ('#00AEE0', '#1B1D2A'), ('#2866B1', '#fff'))
+
+
+def tag_look(tag):
+    code = zlib.crc32(tag.encode('utf-8'))
+    hue, on = TONES[code % len(TONES)]
+    return dict(hue=hue, on=on, variant=code // len(TONES) % 6)
 
 
 def create_app(config=None):
@@ -56,6 +69,11 @@ def create_app(config=None):
     @app.before_request
     def load_user():
         g.user = None
+        # 浏览器把自己的时区写在 tz cookie 里（见 base.html），页面上的时间都按看的人当地时间显示
+        g.tz_name = unquote(request.cookies.get('tz', ''))
+        g.tz = zone(g.tz_name)
+        if g.tz is TEAM_TZ:
+            g.tz_name = ''
         if session.get('user_id'):
             with database() as db:
                 g.user = db.execute('SELECT id,name FROM users WHERE id=?', (session['user_id'],)).fetchone()
@@ -75,7 +93,8 @@ def create_app(config=None):
     # Globals (not a context processor) so imported macros such as the medal can read them too.
     app.jinja_env.globals.update(categories=CATEGORIES, statuses=STATUSES, kinds=KINDS, importance_labels=IMPORTANCE,
                                  urgency_labels=URGENCY, effort_labels=EFFORT, medals=MEDALS, medal_key=medal_key,
-                                 task_xp=progress.task_xp, praise_options=PRAISE, due_label=due_label)
+                                 task_xp=progress.task_xp, praise_options=PRAISE, due_label=due_label, tag_look=tag_look,
+                                 max_interests=MAX_INTERESTS, local_now=lambda: datetime.now(g.tz))
 
     def page_url(**changes):
         """Same page, same filters, with a few changed; empty values drop out of the URL."""
@@ -99,7 +118,7 @@ def create_app(config=None):
 
     def local(value):
         moment = datetime.fromisoformat(value)
-        return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(TEAM_TZ)
+        return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).astimezone(g.get('tz') or TEAM_TZ)
 
     @app.template_filter('date')
     def date(value):
@@ -156,8 +175,8 @@ def create_app(config=None):
         project, query, effort = (request.args.get(k, '') for k in ('project', 'q', 'effort'))
         status = request.args.get('status', 'open')
         unlock = request.args.get('unlock') == '1'
-        batch = request.args.get('batch', '0')
-        batch = int(batch) if batch.isdigit() else 0
+        batch, want_batch = (int(value) if value.isdigit() else 0
+                             for value in (request.args.get('batch', '0'), request.args.get('wb', '0')))
         clauses, params = [], []
         if scope in ('published', 'claimed'):
             clauses.append('t.owner_id=?' if scope == 'published' else 't.assignee_id=?')
@@ -186,29 +205,60 @@ def create_app(config=None):
             projects = [row['project'] for row in db.execute('''SELECT project,MAX(created_at) latest FROM tasks
                 WHERE project IS NOT NULL GROUP BY project ORDER BY latest DESC''')]
             tags_of = discover.tags_by_task(db)
-            picks = discover.recommend(db, g.user['id'], batch=batch)
+            lanes = picks_for(db, want_batch, batch)
             hand = db.execute('''SELECT * FROM tasks WHERE (assignee_id=? AND status='active') OR (owner_id=? AND status='review')
                 ORDER BY deadline LIMIT 3''', (g.user['id'], g.user['id'])).fetchall()
             feed = discover.team_feed(db, g.user['id'])
-            week = discover.week_summary(db)
+            week = discover.week_summary(db, g.tz)
             bundles = progress.team_bundles(db)
-            has_interests = bool(db.execute('SELECT 1 FROM interests WHERE user_id=?', (g.user['id'],)).fetchone())
         zones = [tasks[i:i + PAGE_SIZE] for i in range(0, len(tasks), PAGE_SIZE)] or [[]]
         unlockable = sum(1 for task in tasks if task['status'] == 'open' and medal_key(task) not in earned)
         return render_template('index.html', tasks=tasks, zones=zones, scope=scope, tag=tag, project=project, status=status,
-                               query=query, effort=effort, unlock=unlock, batch=batch, counts=counts, picks=picks, hand=hand,
-                               feed=feed, week=week, bundles=bundles, earned_keys=earned, unlockable=unlockable,
-                               top_tags=top_tags, projects=projects, tags_of=tags_of, has_interests=has_interests)
+                               query=query, effort=effort, unlock=unlock, batch=batch, want_batch=want_batch, counts=counts,
+                               hand=hand, feed=feed, week=week, bundles=bundles, earned_keys=earned, unlockable=unlockable,
+                               top_tags=top_tags, projects=projects, tags_of=tags_of, **lanes)
+
+    def picks_for(db, want_batch=0, past_batch=0):
+        """The two recommendation lanes: what you picked as directions, and what you have done before. Never the same task twice."""
+        interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=? ORDER BY rowid', (g.user['id'],))]
+        want = discover.recommend(db, g.user['id'], batch=want_batch, lane='want') if interests else []
+        past = discover.recommend(db, g.user['id'], batch=past_batch, lane='past', exclude={pick['task']['id'] for pick in want})
+        chosen = discover.directions(db, interests)
+        chosen.sort(key=lambda option: not option['chosen'])   # 上次选的排在最前面，不用翻找
+        history = discover.past_tags(db, g.user['id'])
+        # 还没有任何和自己经历有关的推荐时，第二排叫「先上手试试」
+        starter = not history and not any(pick['reasons'][0][0] in ('skill', 'project', 'similar') for pick in past)
+        return dict(interests=interests, want=want, past=past, directions=chosen, history=history, starter=starter)
+
+    # 换一批、改方向、不感兴趣之后，只重画对应那一排推荐
+    LANE = "{% from 'components/picks.html' import lane_body %}{{ lane_body(lane, picks, interests) }}"
+
+    @app.get('/picks/<lane>')
+    @login_required
+    def lane_picks(lane):
+        if lane not in ('want', 'past'):
+            abort(404)
+        page, want_page = (int(value) if value.isdigit() else 0
+                           for value in (request.args.get('batch', '0'), request.args.get('wb', '0')))
+        with database() as db:
+            # 「按你做过的」要避开第一排此刻正显示的那几张，所以带上第一排翻到了第几批
+            lanes = picks_for(db, page if lane == 'want' else want_page, page if lane == 'past' else 0)
+        return render_template_string(LANE, lane=lane, picks=lanes[lane], interests=lanes['interests'])
 
     @app.post('/me/interests')
     @login_required
     def interests():
+        wants_json = request.accept_mimetypes.best == 'application/json'
         try:
-            set_interests(app.config['DATABASE'], g.user['id'], ' '.join(request.form.getlist('tags')))
-            flash('记下了，推荐会按这些方向来。', 'success')
+            tags = set_interests(app.config['DATABASE'], g.user['id'], ' '.join(request.form.getlist('tags')))
         except InvalidAction as error:
+            if wants_json:
+                return jsonify(error=str(error)), 400
             flash(str(error), 'error')
-        return back()
+            return back()
+        if wants_json:
+            return jsonify(interests=tags)
+        return redirect(url_for('index') + '#dirs')
 
     @app.get('/mine')
     @login_required
@@ -222,7 +272,7 @@ def create_app(config=None):
     def new_task():
         if request.method == 'POST':
             try:
-                task_id = create_task(app.config['DATABASE'], g.user['id'], request.form)
+                task_id = create_task(app.config['DATABASE'], g.user['id'], request.form, g.tz)
                 flash('任务已发布。', 'success')
                 return redirect(url_for('detail', task_id=task_id))
             except InvalidAction as error:
@@ -254,13 +304,34 @@ def create_app(config=None):
                 team.append(dict(id=user['id'], name=user['name'], featured=shown or kinds[:3],
                                  level=levels.get(user['id'], progress.level_info(0))))
             team.sort(key=lambda person: (-person['level']['xp'], person['id']))
-            interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=?', (g.user['id'],))]
             bundles = progress.team_bundles(db)
+            interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=? ORDER BY rowid', (g.user['id'],))]
+            # 还没拿到的勋章，告诉他现在有几个任务能拿到
+            can_get = {key: 0 for key in MEDALS}
+            for task in discover.open_tasks(db, g.user['id']):
+                can_get[medal_key(task)] += 1
         by_key = {key: [award for award in awards if award['medal_key'] == key] for key in MEDALS}
         # 没挑过名牌勋章的人，先用拿得最多的三种撑起名牌
         plate_medals = featured or sorted((key for key in MEDALS if by_key[key]), key=lambda key: -len(by_key[key]))[:3]
+        case = {}
+        for key, info in MEDALS.items():
+            got = by_key[key]
+            importance, urgency = key.split('-')
+            praised = next((award for award in got if award['praise'] and award['praise'] != '成果验收通过。'), None)
+            face = praised or (got[0] if got else None)
+            case[key] = dict(
+                name=info['name'], hue=info['hue'], count=len(got), xp=progress.task_xp(key) * len(got),
+                each=progress.task_xp(key), kind=f'{EFFORT[importance]} · {IMPORTANCE[importance]} · {URGENCY[urgency]}',
+                first=month_day(got[-1]['awarded_at']) if got else '', can_get=can_get[key], plate=key in featured,
+                find=url_for('index', effort=importance, unlock='1') + '#browse-title',
+                # 勋章背面：刻最近一句夸奖，没有夸奖就刻任务名
+                back=dict(quote=face['praise'] if praised else face['title'], by=face['owner_name'],
+                          on=month_day(face['awarded_at']), praised=bool(praised)) if face else None,
+                history=[dict(title=award['title'], by=award['owner_name'], on=month_day(award['awarded_at']), claps=award['claps'],
+                              praise=award['praise'] if award['praise'] and award['praise'] != '成果验收通过。' else '',
+                              task=url_for('detail', task_id=award['task_id'])) for award in got])
         return render_template('honors.html', awards=awards, by_key=by_key, featured=featured, plate_medals=plate_medals,
-                               stats=stats, team=team, interests=interests, bundles=bundles, rows=progress.ROWS)
+                               stats=stats, team=team, bundles=bundles, rows=progress.ROWS, case=case, interests=interests)
 
     @app.post('/honors/featured')
     @login_required
@@ -350,11 +421,14 @@ def create_app(config=None):
     @app.post('/tasks/<int:task_id>/dismiss')
     @login_required
     def dismiss_task(task_id):
+        wants_json = request.accept_mimetypes.best == 'application/json'
         try:
             dismiss(app.config['DATABASE'], task_id, g.user['id'])
         except InvalidAction as error:
+            if wants_json:
+                return jsonify(error=str(error)), 400
             flash(str(error), 'error')
-        return back()
+        return jsonify(ok=True) if wants_json else back()
 
     @app.post('/tasks/<int:task_id>/<action>')
     @login_required

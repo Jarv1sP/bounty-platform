@@ -4,8 +4,55 @@
 {% from 'components/ui.html' import ava, plate, csrf %}
 {% block title %}成就 · 搭把手{% endblock %}
 {% block body_class %}page-honors{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='case.js') }}" defer></script>{% endblock %}
 {% block content %}
 <div class="wrap ach" {% if mailbox %}data-honor-reveal="{{ url_for('reveal_honors') }}"{% endif %}>
+  {# 勋章柜：每种勋章站在自己的格子里，拿到几枚就叠几层；点一枚拿起来看（case.js），不开 JS 时展开看每一次获得 #}
+  <section class="case" id="case" aria-labelledby="case-title">
+    <svg class="case-deco" viewBox="0 0 1200 420" preserveAspectRatio="xMaxYMin slice" aria-hidden="true">
+      <circle cx="1130" cy="40" r="150" fill="#fff" fill-opacity=".035"/><path d="M820 0 1020 420" stroke="#fff" stroke-opacity=".04" stroke-width="40"/>
+    </svg>
+    <header class="case-head">
+      <div class="case-title">
+        <span class="case-label">勋章柜</span>
+        <h1 id="case-title"><b class="num" data-case-total>{{ me.total }}</b><span>枚勋章</span></h1>
+      </div>
+      <dl class="case-facts">
+        <div><dt>集到的种类</dt><dd class="num"><b data-case-kinds>{{ me.kinds }}</b> / 6</dd></div>
+        <div><dt>攒下的经验</dt><dd class="num"><b>{{ me.xp }}</b></dd></div>
+        <div><dt>集齐的一行</dt><dd><b>{% for urg, (label, members) in rows.items() if me.rows[urg] %}{{ label }}{{ ' ' if not loop.last }}{% else %}还没有{% endfor %}</b></dd></div>
+      </dl>
+      <p class="case-tip">{{ icon('medal') }}点一枚拿起来看，拖着能转，背面刻着夸奖</p>
+    </header>
+    <div class="case-grid">
+      <span class="case-corner"></span>
+      {% for imp in ['light', 'standard', 'major'] %}<div class="case-col"><b>{{ medals[imp ~ '-normal'].name }}</b><small>{{ effort_labels[imp] }}</small></div>{% endfor %}
+      {% for urg, (label, members) in rows.items() %}
+      <div class="case-row{{ ' complete' if me.rows[urg] }}"><b>{{ urgency_labels[urg] }}</b><small>{{ label }}</small></div>
+      {% for key in members %}{% set got = by_key[key] %}{% set n = got|length %}
+      <details class="tile{{ '' if got else ' locked' }}" data-collection-key="{{ key }}" data-count="{{ n }}" style="--hue:{{ medals[key].hue }};--n:{{ loop.index0 + (3 if urg == 'urgent' else 0) }}">
+        <summary aria-label="{{ medals[key].name }}：{{ '拿到 ' ~ n ~ ' 枚' if n else '还没拿到' }}">
+          <span class="tile-stage" data-stack="{{ [n, 3]|min }}"><i class="tile-stack"></i>{{ medal(key, ghost=not got) }}</span>
+          <span class="tile-name"><b>{{ medals[key].name }}</b><span class="cnt num">×<span data-count-text>{{ n }}</span></span></span>
+          <small class="tile-sub">{% if got %}+{{ task_xp(key) * n }} 经验{% elif case[key].can_get %}{{ case[key].can_get }} 个任务能拿{% else %}还没拿到{% endif %}</small>
+          {% if key in featured %}<span class="on-plate">名牌上</span>{% endif %}
+        </summary>
+        <div class="tile-back">
+          {% if got %}
+          <ol class="honor-back">{% for award in got %}
+            <li><span class="stamp-date" style="--c:{{ medals[key].hue }}">{{ award.awarded_at|md }}</span><b>{{ award.title }}</b>
+              <span>{{ award.owner_name }} 验收{% if award.praise and award.praise != '成果验收通过。' %}：「{{ award.praise }}」{% endif %}{% if award.claps %} · {{ award.claps }} 次鼓掌{% endif %}</span></li>
+          {% endfor %}</ol>
+          {% else %}
+          <p class="how">完成一个{{ case[key].kind }}的任务就能拿到 · <a href="{{ case[key].find }}">去找 →</a></p>
+          {% endif %}
+        </div>
+      </details>
+      {% endfor %}
+      {% endfor %}
+    </div>
+  </section>
+
   <section class="ach-top">
     <div class="pedit panel">
       <div class="pedit-head"><h2 class="sec">我的名牌</h2><small>出现在团队名牌墙上</small></div>
@@ -42,33 +89,6 @@
     <div class="stat panel"><b class="num">{{ stats.done }}</b><span>完成的任务</span><small>累计 {{ me.xp }} 经验</small></div>
     <div class="stat panel"><b class="num">{{ stats.helped }}</b><span>帮过的人</span><small>你接过谁的任务</small></div>
     <div class="stat panel"><b class="num">{{ stats.claps }}</b><span>收到的鼓掌</span><small>队友在动态里拍的</small></div>
-    <div class="stat panel"><b class="num">{{ me.kinds }}<small style="font-size:20px;color:var(--faint)"> / 6</small></b><span>勋章种类</span><small>{{ '全部集齐！' if me.complete else '集齐一行会有庆祝' }}</small></div>
-  </section>
-
-  <section class="mxwrap panel" aria-labelledby="collection-title">
-    <h2 class="sec" id="collection-title">收集册<span>{{ me.kinds }} / 6</span><small>点动成线，线动成面：任务越重，勋章填得越满。点开一枚看它的每一次获得。</small></h2>
-    <div class="matrix">
-      <span class="corner"></span>
-      {% for imp in ['light', 'standard', 'major'] %}<div class="mx-col"><b>{{ medals[imp ~ '-normal'].name }}</b><small>{{ effort_labels[imp] }} · {{ importance_labels[imp] }}</small></div>{% endfor %}
-      {% for urg, (label, members) in rows.items() %}
-      <div class="mx-row{{ ' complete' if me.rows[urg] }}"><b>{{ urgency_labels[urg] }}</b><small>{{ label }}{{ '' if urg == 'normal' else ' · 挂「急」' }}</small></div>
-      {% for key in members %}{% set got = by_key[key] %}
-      <details class="tile{{ '' if got else ' locked' }}" data-collection-key="{{ key }}">
-        <summary>{% if key in featured %}<span class="on-plate">在名牌上</span>{% endif %}{{ medal(key, ghost=not got, label=medals[key].name) }}
-          <div><h3>{{ medals[key].name }}</h3>
-            {% if got %}<span class="cnt num"><i>×</i>{{ '%02d'|format(got|length) }}</span><small>首次 {{ got[-1].awarded_at|md }} · +{{ task_xp(key) * got|length }} 经验</small>
-            {% else %}<small>尚未获得</small><p class="how">完成一个{{ importance_labels[key.split('-')[0]] }}{{ '（加急）' if key.endswith('urgent') else '' }}任务 · <a href="{{ url_for('index', effort=key.split('-')[0]) }}">去找 →</a></p>{% endif %}
-          </div></summary>
-        {% if got %}
-        <ol class="honor-back">{% for award in got %}
-          <li><span class="stamp-date" style="--c:{{ medals[key].hue }}">{{ award.awarded_at|md }}</span><b>{{ award.title }}</b>
-            <span>{{ award.owner_name }} 验收{% if award.praise and award.praise != '成果验收通过。' %}：「{{ award.praise }}」{% endif %}{% if award.claps %} · {{ award.claps }} 次鼓掌{% endif %}</span></li>
-        {% endfor %}</ol>
-        {% endif %}
-      </details>
-      {% endfor %}
-      {% endfor %}
-    </div>
   </section>
 
   <section class="ach-mid">
@@ -79,14 +99,12 @@
       {% else %}<div class="empty"><b>还没有勋章</b><span>去「发现」挑一个任务，验收通过后勋章会出现在这里。</span></div>{% endif %}
     </div>
     <div class="likes panel">
-      <h2 class="sec">想做的方向</h2>
-      <p>推荐会先看你做过的任务，再看这里。没做过多少任务的时候，这里最管用。</p>
-      <form method="post" action="{{ url_for('interests') }}">{{ csrf() }}
-        <input name="tags" value="{{ interests|join(' ') }}" placeholder="例如：图论 数据 PyTorch" aria-label="想做的方向，用空格分开">
-        <div><button class="btn btn-sm">保存</button></div>
-      </form>
-      <h2 class="sec" style="margin-top:8px">团队收集包</h2>
+      <h2 class="sec">团队收集包</h2>
       <p>本周「{{ bundles.current.name }}」{{ bundles.current.count }} / {{ bundles.current.slots|length }}，团队一共集满过 {{ bundles.completed }} 个包。</p>
+      <h2 class="sec" style="margin-top:8px">想做的方向</h2>
+      {% if interests %}<div class="tags like-tags">{% for tag in interests %}<span class="tag" style="--tone:{{ tag_look(tag).hue }}">{{ tag }}</span>{% endfor %}</div>
+      {% else %}<p>还没选。在「发现」最上面点几个，推荐会多出一排按方向挑的任务。</p>{% endif %}
+      <a class="btn btn-line btn-sm" href="{{ url_for('index') }}#dirs">去「发现」重新选</a>
     </div>
   </section>
 
@@ -102,10 +120,45 @@
     <span class="label" data-award-label>验收通过</span>
     <div class="award-items" data-award-items></div>
     <div class="award-actions">
-      <a class="btn btn-line btn-big" href="#collection-title" data-close-awards>收下</a>
+      <a class="btn btn-line btn-big" href="#case" data-close-awards>收进柜子</a>
       <button type="button" class="btn btn-big" data-award-feature>放上名牌</button>
     </div>
   </div>
 </dialog>
-<template data-medal-template>{% for key in medals %}<span data-key="{{ key }}">{{ medal(key) }}</span>{% endfor %}</template>
+
+{# 拿起一枚勋章来看：深色展台 + 勋章的颜色打光；正面是勋章，背面刻最近一句夸奖 #}
+<dialog class="inspect" aria-labelledby="inspect-name">
+  <div class="inspect-bg" aria-hidden="true"><i class="inspect-rays"></i><i class="inspect-glow"></i>
+    <svg class="inspect-bits" viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid slice">
+      <circle class="bit" style="--d:0s" cx="140" cy="140" r="10"/><rect class="bit" style="--d:-3s" x="820" y="120" width="70" height="10" rx="5"/>
+      <path class="bit" style="--d:-6s" d="M880 600A60 60 0 0 1 940 540V600Z"/><circle class="bit" style="--d:-2s" cx="90" cy="560" r="6"/>
+      <circle class="bit" style="--d:-5s" cx="610" cy="70" r="5"/><rect class="bit" style="--d:-8s" x="300" y="620" width="10" height="46" rx="5"/>
+    </svg>
+  </div>
+  <div class="inspect-in">
+    <div class="inspect-stage" data-inspect-stage>
+      <div class="coin-fly" data-coin-fly>
+        <div class="coin-float">
+          <div class="coin" data-coin>
+            <div class="coin-face coin-front" data-coin-front></div>
+            <div class="coin-edge" data-coin-edge></div>
+            <div class="coin-face coin-back" data-coin-back></div>
+          </div>
+        </div>
+        <div class="burst" data-inspect-burst></div>
+      </div>
+      <i class="coin-shadow"></i>
+      <div class="inspect-tools">
+        <button type="button" class="inspect-nav" data-inspect-step="-1" aria-label="上一枚">{{ icon('back') }}</button>
+        <p class="inspect-tip">拖动转一转 · 点一下翻到背面<span class="num" data-inspect-pos></span></p>
+        <button type="button" class="inspect-nav" data-inspect-step="1" aria-label="下一枚">{{ icon('arrow') }}</button>
+      </div>
+    </div>
+    <div class="inspect-info" data-inspect-info></div>
+  </div>
+  <button type="button" class="inspect-close" data-inspect-close aria-label="放回柜子">{{ icon('close') }}</button>
+</dialog>
+
+<template data-medal-template>{% for key in medals %}<span data-key="{{ key }}">{{ medal(key) }}</span><span data-key="ghost-{{ key }}">{{ medal(key, ghost=true) }}</span>{% endfor %}</template>
+<script type="application/json" id="case-data">{{ case|tojson }}</script>
 {% endblock %}

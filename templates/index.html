@@ -2,40 +2,31 @@
 {% from 'components/icon.html' import icon %}
 {% from 'components/medal.html' import medal %}
 {% from 'components/ui.html' import ava, due, task_card, csrf %}
+{% from 'components/picks.html' import lane_body %}
+{% from 'components/directions.html' import direction_bar %}
 {% block title %}发现 · 搭把手{% endblock %}
 {% block body_class %}page-home{% endblock %}
 
-{# 色卡上的装饰：只用白和墨，组合点、线、面 #}
-{% macro field_art(v) -%}
-<svg class="pick-art" viewBox="0 0 400 180" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
-{%- if v % 3 == 0 -%}
-<path class="fl" style="--fx:8px;--fy:-6px" d="M400 180H250A150 150 0 0 1 400 30Z" fill="#fff"/><circle class="fl" style="--fx:-10px;--fy:6px" cx="318" cy="44" r="14" fill="#1B1D2A"/>
-<g class="fl" style="--fx:-14px"><circle cx="196" cy="44" r="4.5" fill="#fff"/><circle cx="212" cy="44" r="4.5" fill="#fff"/><circle cx="226" cy="44" r="4.5" fill="#fff"/><path d="M236 44H286" stroke="#fff" stroke-width="9" stroke-linecap="round"/></g>
-{%- elif v % 3 == 1 -%}
-<circle class="fl" style="--fx:6px;--fy:6px" cx="372" cy="0" r="104" fill="#fff"/><rect class="fl" style="--fx:-8px" x="230" y="112" width="96" height="10" rx="5" fill="#1B1D2A"/>
-<g class="fl" style="--fy:-8px">{% for x in (236, 254, 272) %}{% for y in (148, 166) %}<circle cx="{{ x }}" cy="{{ y }}" r="4.5" fill="#fff"/>{% endfor %}{% endfor %}</g>
-{%- else -%}
-<path class="fl" style="--fx:10px" d="M300 180 360 40H400V180Z" fill="#fff"/><path class="fl" style="--fx:-6px;--fy:4px" d="M268 180 328 40" stroke="#1B1D2A" stroke-width="8" stroke-linecap="round"/><circle class="fl" style="--fx:-12px;--fy:-6px" cx="236" cy="58" r="11" fill="#1B1D2A"/>
-{%- endif -%}
-</svg>
-{%- endmacro %}
-
 {% block content %}
-{% set hour = current_time[11:13]|int + 8 %}
+{% set hour = local_now().hour %}
 <div class="wrap home">
   <section class="hello">
     <div class="hello-text">
-      <h1>{{ '早上好' if hour % 24 < 11 else ('下午好' if hour % 24 < 18 else '晚上好') }}，{{ g.user.name }}</h1>
+      <h1>{{ '早上好' if 5 <= hour < 11 else '中午好' if 11 <= hour < 14 else '下午好' if 14 <= hour < 18 else '晚上好' }}，{{ g.user.name }}</h1>
       <p>{% if unlockable %}有 <b>{{ counts.get('open', 0) }}</b> 个任务等人搭把手，其中 <b>{{ unlockable }}</b> 个能给你带来新勋章。{% else %}有 <b>{{ counts.get('open', 0) }}</b> 个任务等人搭把手。{% endif %}</p>
     </div>
     <div class="hello-me">
       {% if mailbox %}
       <a class="mail-card" href="{{ url_for('honors') }}">{{ icon('mail') }}<span><b>信箱里有 {{ mailbox }} 枚新勋章</b><small>去拆开看看</small></span></a>
       {% endif %}
-      <a class="level-card" href="{{ url_for('honors') }}">
+      <a class="level-card" href="{{ url_for('honors') }}#case" aria-label="Lv.{{ me.level }} {{ me.name }}，勋章柜里 {{ me.total }} 枚勋章">
         <span class="lv">Lv.{{ me.level }}</span>
         <span class="level-text"><b>{{ me.name }}</b><small>再 {{ me.to_next }} 经验升到 Lv.{{ me.level + 1 }}</small></span>
         <span class="bar" style="--p:{{ me.percent }}%"><i></i></span>
+        <span class="mini-case" aria-hidden="true">
+          {% for key in medals %}{% set n = me.counts[key] %}<span class="mc{{ ' got' if n }}" style="--i:{{ loop.index0 }}">{{ medal(key, ghost=not n) }}{% if n > 1 %}<b class="num">{{ n }}</b>{% endif %}</span>{% endfor %}
+          <em><b class="num">{{ me.total }}</b>枚</em>
+        </span>
       </a>
       {% if hand %}
       <div class="hand"><span>手上的 {{ hand|length }} 件</span>
@@ -45,41 +36,20 @@
     </div>
   </section>
 
-  {% if not has_interests and me.total < 3 and top_tags %}
-  <form class="interests panel" method="post" action="{{ url_for('interests') }}">
-    {{ csrf() }}
-    <div><b>想做哪些方向？</b><small>选几个，「为你挑的」会先按这些来，之后会跟着你做过的任务自己调整。</small></div>
-    <div class="chips">{% for tag in top_tags %}<label class="chip"><input type="checkbox" name="tags" value="{{ tag }}">{{ tag }}</label>{% endfor %}<input class="chip-input" name="tags" placeholder="其他方向" aria-label="其他方向"></div>
-    <button class="btn btn-sm">记下</button>
-  </form>
-  {% endif %}
+  {{ direction_bar(directions, interests) }}
 
-  <section class="picks" aria-labelledby="picks-title">
-    <header class="sec-head"><h2 id="picks-title">为你挑的</h2><small>按你做过的任务、想做的方向和还没收集到的勋章挑</small>
-      {% if picks %}<a class="shuffle" href="{{ page_url(batch=batch + 1) }}#picks-title" data-shuffle>{{ icon('shuffle') }}换一批</a>{% endif %}</header>
-    {% if picks %}
-    <div class="pick-row">
-      {% for pick in picks %}{% set task = pick.task %}{% set key = medal_key(task) %}{% set left = due_label(task.deadline) %}
-      <article class="pick" style="--i:{{ loop.index0 }};--hue:{{ medals[key].hue }}" data-pick="{{ task.id }}">
-        <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
-        <div class="pick-field">{{ field_art(loop.index0) }}
-          <span class="sticker" style="--sticker:{{ {'unlock': '#F39800', 'skill': '#00A27A', 'similar': '#00A27A', 'project': '#2866B1', 'new-project': '#2866B1', 'interest': '#00AEE0', 'urgent': '#E54465', 'quick': '#00A27A'}.get(pick.reasons[0][0], '#1B1D2A') }}"><i></i>{{ pick.reasons[0][1] }}</span>
-          <form class="pick-x" method="post" action="{{ url_for('dismiss_task', task_id=task.id) }}">{{ csrf() }}<button title="不感兴趣，少推荐这类" aria-label="不感兴趣：{{ task.title }}">{{ icon('close') }}</button></form>
-        </div>
-        {{ medal(key, 'pick-medal', label='完成可得 ' ~ medals[key].name) }}
-        <div class="pick-body">
-          <span class="kicker">{{ task.project or (pick.tags[0] if pick.tags else '') }}<span>·</span>{{ effort_labels[task.importance] }}<span>·</span><span class="{{ 'soon' if left[1] }}">{{ left[0] }}</span></span>
-          <h3>{{ task.title }}</h3>
-          <p class="goal">{{ task.description }}</p>
-          <div class="pick-foot">{{ ava(task.owner_name, task.owner_id) }}<span>{{ task.owner_name }}</span><span class="xp">+{{ task_xp(key) }} 经验</span>
-            <form method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-quick-claim>{{ csrf() }}<button class="btn btn-sm">认领</button></form></div>
-        </div>
-      </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty panel"><b>现在没有能认领的任务</b><span>发一个吧，或者去看看大家在做什么。</span><a class="btn btn-sm" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a></div>
-    {% endif %}
+  <section class="lane lane-want" aria-labelledby="want-title">
+    <header class="sec-head"><h2 id="want-title">按你选的方向</h2>
+      <span class="lane-why" data-want-tags>{% for tag in interests %}<span class="tag" style="--tone:{{ tag_look(tag).hue }}">{{ tag }}</span>{% endfor %}</span>
+      <a class="shuffle" href="{{ page_url(wb=want_batch + 1) }}#want-title" data-lane-more="want" data-batch="{{ want_batch }}" {% if not want %}hidden{% endif %}>{{ icon('shuffle') }}换一批</a></header>
+    {{ lane_body('want', want, interests) }}
+  </section>
+
+  <section class="lane lane-past" aria-labelledby="past-title">
+    <header class="sec-head"><h2 id="past-title">{{ '先上手试试' if starter else '按你做过的' }}</h2>
+      <span class="lane-why">{% if history %}你常做 {% for tag, n in history %}<span class="tag">{{ tag }}<i class="num">×{{ n }}</i></span>{% endfor %}{% elif not starter %}按你参与过的项目和手上的任务挑{% else %}做完第一个任务后，这一排会按你的经历来挑{% endif %}</span>
+      <a class="shuffle" href="{{ page_url(batch=batch + 1) }}#past-title" data-lane-more="past" data-batch="{{ batch }}" {% if not past %}hidden{% endif %}>{{ icon('shuffle') }}换一批</a></header>
+    {{ lane_body('past', past, interests) }}
   </section>
 
   {% if feed %}
