@@ -1,4 +1,4 @@
-"""What medals unlock in the game corner. Nothing is ever spent: once a medal is in the case, what it opened stays open.
+"""What medals unlock in 縁側 (the game corner). Nothing is ever spent: once a medal is in the case, what it opened stays open.
 
 - Each medal kind's colour becomes a building-block colour (点 green, 线 cyan, 面 blue, the urgent ones yellow / orange / red),
   and the full set adds gold.

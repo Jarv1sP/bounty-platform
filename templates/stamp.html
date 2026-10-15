@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% from 'components/icon.html' import icon %}
-{% block title %}盖章挑战 · 搭把手{% endblock %}
+{% block title %}盖章挑战 · 結 YUI{% endblock %}
 {% block body_class %}page-game{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='games.js') }}" defer></script>{% endblock %}
 {% block content %}
 <div class="wrap game-page">
   <header class="game-head">
-    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
+    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}縁側</a>
     {% set chosen = request.args.get('mode') if request.args.get('mode') in modes and modes[request.args.get('mode')].open else 'normal' %}
     <h1>盖章挑战<span data-mode-label>{{ modes[chosen].name }}</span><span>最好 <b class="num" data-best>{{ best[chosen].score }}</b> 分 · 最高 <b class="num" data-best-combo>{{ best[chosen].combo }}</b> 连击</span></h1>
   </header>
@@ -66,7 +66,7 @@
         <div class="result-titles" data-result-titles></div>
         <p class="result-nudge" data-result-nudge hidden>已经连着玩了好几局啦，歇歇眼睛，或者去「发现」看看有没有能搭把手的任务。</p>
         <div class="result-actions">
-          <a class="btn btn-line" href="{{ url_for('play') }}">回游戏角</a>
+          <a class="btn btn-line" href="{{ url_for('play') }}">回縁側</a>
           <button type="button" class="btn btn-line" data-change>换玩法</button>
           <button type="button" class="btn" data-again>{{ icon('play') }}再来一局</button>
         </div>

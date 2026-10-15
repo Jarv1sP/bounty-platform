@@ -1,4 +1,4 @@
-/* 存成图片和学期回顾。
+/* 存成图片和学期绘卷。
    图片在浏览器里现场画：先拼一张纯 SVG（不引用任何外部资源），再画到 canvas 上导出 PNG，不经过服务器。
    手机浏览器经常不支持直接下载，所以导出后先弹出预览，可以长按保存。 */
 (() => {
@@ -54,7 +54,7 @@
       <text x="64" y="330" font-size="128" font-weight="800" fill="#fff">${esc(d.name)}</text>
       ${d.title ? sealSvg(d.title.name, d.title.color, d.build ? 620 : 1000, 60, d.build ? 120 : 150) : ''}
       ${medals}${empty}
-      <text x="64" y="${H - 40}" font-size="24" font-weight="700" fill="#fff" fill-opacity=".85">搭把手 · ${d.total} 枚勋章 · ${d.xp} 经验 · ${today()}</text>
+      <text x="64" y="${H - 40}" font-size="24" font-weight="700" fill="#fff" fill-opacity=".85">結 YUI · ${d.total} 枚勋章 · ${d.xp} 经验 · ${today()}</text>
     </svg>`;
     return {svg, w: W, h: H};
   }
@@ -91,7 +91,7 @@
       ${medals}
       ${quote.map((line, i) => `<text x="80" y="${1130 + i * 56}" font-size="42" font-weight="800" fill="#fff">${esc(line)}</text>`).join('')}
       ${d.quote ? `<text x="80" y="${1130 + quote.length * 56 + 10}" font-size="28" font-weight="700" fill="#fff" fill-opacity=".7">— ${esc(d.quote.by)}</text>` : ''}
-      <text x="80" y="${H - 70}" font-size="28" font-weight="700" fill="#fff" fill-opacity=".85">搭把手 · Lv.${d.level} ${esc(d.level_name)}</text>
+      <text x="80" y="${H - 70}" font-size="28" font-weight="700" fill="#fff" fill-opacity=".85">結 YUI · Lv.${d.level} ${esc(d.level_name)}</text>
     </svg>`;
     return {svg, w: W, h: H};
   }
@@ -131,11 +131,11 @@
   const read = id => { try { return JSON.parse(document.getElementById(id).textContent); } catch { return null; } };
   document.querySelector('[data-save-plate]')?.addEventListener('click', () => {
     const data = read('plate-data');
-    if (data) savePng(plateImage(data), `搭把手名牌-${data.name}.png`);
+    if (data) savePng(plateImage(data), `結YUI-名牌-${data.name}.png`);
   });
   document.querySelector('[data-save-recap]')?.addEventListener('click', () => {
     const data = read('recap-data');
-    if (data) savePng(recapImage(data), `搭把手-${data.term}-${data.name}.png`);
+    if (data) savePng(recapImage(data), `結YUI-${data.term}绘卷-${data.name}.png`);
   });
 
   /* ---------- 称号墙：点一下，印章先盖下去再提交 ---------- */
@@ -148,7 +148,7 @@
     motion.finished.then(() => HTMLFormElement.prototype.submit.call(form));
   }));
 
-  /* ---------- 学期回顾：翻到哪一屏，哪一屏的内容依次出来，数字从 0 数上去 ---------- */
+  /* ---------- 学期绘卷：翻到哪一屏，哪一屏的内容依次出来，数字从 0 数上去 ---------- */
   const slides = document.querySelectorAll('.slide');
   if (slides.length) {
     if (!('IntersectionObserver' in window) || !feel.motionOn()) slides.forEach(slide => slide.classList.add('in'));

@@ -9,14 +9,16 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from bounty.db import SCHEMA, connect
+from bounty.db import connect
 from bounty.demo import seed_demo
 
 DEPENDENCIES = {
     'Flask': 'flask', 'Werkzeug': 'werkzeug', 'Jinja2': 'jinja2',
     'MarkupSafe': 'markupsafe', 'itsdangerous': 'itsdangerous',
-    'click': 'click', 'blinker': 'blinker', 'colorama': 'colorama',
+    'click': 'click', 'blinker': 'blinker', 'colorama': 'colorama', 'tzdata': 'tzdata',
 }
+# 打包机上没装也能出包的依赖：没有它只影响 Windows 上按各人时区显示
+OPTIONAL = {'tzdata': 'Windows 上需要 pip install tzdata 才能按每个人的时区显示'}
 
 
 def build():
@@ -32,19 +34,18 @@ def build():
     for name in ('bounty', 'templates', 'tests'):
         shutil.copytree(ROOT / name, package / name,
                         ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-    (package / 'static').mkdir()
-    for name in ('style.css', 'ui.js', 'board.css', 'board.js'):
-        shutil.copy2(ROOT / 'static' / name, package / 'static' / name)
+    # 整个 static 目录都要带上（勋章柜、积木、小游戏、存图各有自己的脚本）
+    shutil.copytree(ROOT / 'static', package / 'static', ignore=shutil.ignore_patterns('previews'))
     (package / 'scripts').mkdir()
     shutil.copy2(ROOT / 'scripts' / 'check_motion.py', package / 'scripts' / 'check_motion.py')
     (package / 'database').mkdir()
-    (package / 'database' / 'schema.sql').write_text('-- SQLite schema; see bounty/db.py for migrations.\n' + SCHEMA, encoding='utf-8')
+    shutil.copy2(ROOT / 'database' / 'schema.sql', package / 'database' / 'schema.sql')
     (package / 'START_HERE.txt').write_text(
-        '搭把手 · 本地运行包\n\n'
+        '結 YUI · 本地运行包\n\n'
         '1. 安装 Python 3.10+，完整解压 ZIP。\n'
         '2. Windows 双击 start.bat；macOS/Linux 执行 python3 run.py。\n'
         '3. 打开 http://127.0.0.1:5080 。\n\n'
-        '演示用户：发布者 / 认领人 / 其他成员，密码均为 demo12345。\n'
+        '演示用户：发布者（也是管理员）/ 认领人 / 陈默 / 王瑶……密码均为 demo12345。\n'
         '已包含独立演示数据库与运行依赖；任务操作会真实保存。\n'
         '无需 Node/MySQL，无需联网安装依赖，不会公开上线。\n'
         '新建干净数据目录：python run.py --data-dir my-data\n'
@@ -55,7 +56,13 @@ def build():
     notices = ['Bundled dependencies retain their upstream licenses in each *.dist-info directory.',
                'MarkupSafe uses its pure-Python fallback; native extension binaries are intentionally omitted.', '']
     for distribution, module in DEPENDENCIES.items():
-        metadata = importlib.metadata.distribution(distribution)
+        try:
+            metadata = importlib.metadata.distribution(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            if distribution in OPTIONAL:
+                notices.append(f'{distribution}: not bundled ({OPTIONAL[distribution]})')
+                continue
+            raise
         versions[distribution] = metadata.version
         source = Path(metadata.locate_file(module))
         shutil.copytree(source, vendor / module,

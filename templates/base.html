@@ -1,5 +1,5 @@
 {% from 'components/icon.html' import icon %}
-{% from 'components/ui.html' import logo, ava %}
+{% from 'components/ui.html' import logo, wordmark, ava %}
 <!doctype html>
 <html lang="zh-CN" data-motion="on" data-tz="{{ g.get('tz_name', '') }}">
 <head>
@@ -7,7 +7,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light">
   <meta name="csrf-token" content="{{ session.csrf }}">
-  <title>{% block title %}搭把手{% endblock %}</title>
+  <title>{% block title %}結 YUI{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Ccircle cx='15' cy='20' r='8' fill='none' stroke='%23E54465' stroke-width='4'/%3E%3Ccircle cx='25' cy='20' r='8' fill='none' stroke='%232866B1' stroke-width='4'/%3E%3Cpath d='M17.07 12.27A8 8 0 0 1 21.93 16' fill='none' stroke='%23E54465' stroke-width='4'/%3E%3C/svg%3E">
   <script>
     // 在样式生效前定下动效开关，避免先动一下再停
     try { if (localStorage.getItem('bounty-motion') === 'off' || matchMedia('(prefers-reduced-motion: reduce)').matches) document.documentElement.dataset.motion = 'off'; } catch (e) {}
@@ -33,12 +34,12 @@
   {% set here = request.endpoint %}
   <header class="top">
     <div class="top-in">
-      <a class="logo" href="{{ url_for('index') }}">{{ logo() }}搭把手</a>
+      <a class="logo" href="{{ url_for('index') }}">{{ logo() }}{{ wordmark() }}</a>
       <nav class="nav" aria-label="主导航">
         <a href="{{ url_for('index') }}" {% if here == 'index' %}aria-current="page"{% endif %}>发现</a>
         <a href="{{ url_for('mine') }}" {% if here == 'mine' %}aria-current="page"{% endif %}>我的任务{% if my_turn %}<b aria-label="{{ my_turn }} 件轮到你">{{ my_turn }}</b>{% endif %}</a>
         <a href="{{ url_for('honors') }}" {% if here in ('honors', 'recap_page') %}aria-current="page"{% endif %}>成就</a>
-        <a href="{{ url_for('play') }}" {% if here and here.startswith('play') %}aria-current="page"{% endif %}>游戏角{% if play_new %}<i class="new-dot" aria-label="有 {{ play_new }} 样新解锁">新</i>{% endif %}</a>
+        <a href="{{ url_for('play') }}" {% if here and here.startswith('play') %}aria-current="page"{% endif %}>縁側{% if play_new %}<i class="new-dot" aria-label="有 {{ play_new }} 样新解锁">新</i>{% endif %}</a>
       </nav>
       <div class="top-right">
         <a class="btn btn-new" href="{{ url_for('new_task') }}">{{ icon('plus') }}发布任务</a>

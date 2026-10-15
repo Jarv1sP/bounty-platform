@@ -1,4 +1,4 @@
-"""学期回顾: one page per term that tells a person's term back to them. Terms follow the Chinese university calendar
+"""学期绘卷: one page per term that tells a person's term back to them. Terms follow the Chinese university calendar
 (春季 Feb–Jul, 秋季 Aug–Jan) on the team clock, so the whole team shares the same boundaries."""
 from collections import Counter
 from datetime import datetime, timedelta, timezone

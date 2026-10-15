@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
 {% from 'components/medal.html' import medal %}
-{% from 'components/ui.html' import logo, csrf %}
-{% block title %}{{ '登录' if mode == 'login' else '注册' }} · 搭把手{% endblock %}
+{% from 'components/ui.html' import logo, wordmark, csrf %}
+{% block title %}{{ '登录' if mode == 'login' else '注册' }} · 結 YUI{% endblock %}
 {% block body_class %}page-auth{% endblock %}
 {% block content %}
 <div class="auth">
   <section class="auth-art">
-    <span class="logo">{{ logo() }}搭把手</span>
+    <span class="logo">{{ logo() }}{{ wordmark() }}</span>
     {# 「解散！」倒着放：几块几何碎片从四面飞来拼成一幅图 #}
     <svg class="compose" viewBox="0 0 440 240" aria-hidden="true">
       {% for shape, dx, dy, r in [
@@ -21,8 +21,8 @@
       {% endfor %}
     </svg>
     <div>
-      <h1>团队里的活，大家搭把手。</h1>
-      <p>挑一个想做的任务，做完拿勋章、涨经验。任务越重，勋章填得越满。</p>
+      <h1>今天我帮你，<br>明天你帮我。</h1>
+      <p>「結（ゆい）」是日本乡村的老习惯：一家干不完的活，邻里轮流来帮。团队里的任务也一样——挑一个想做的，做完拿勋章、涨经验。</p>
     </div>
     <div class="auth-medals">{% for key in medals %}{{ medal(key) }}{% endfor %}</div>
   </section>

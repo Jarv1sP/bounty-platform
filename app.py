@@ -525,7 +525,7 @@ def create_app(config=None):
                        titles=[dict(key=t['key'], name=t['name'], how=t['how'], color=t['color']) for t in fresh_titles],
                        after={k: after[k] for k in ('xp', 'level', 'name', 'into', 'span', 'to_next', 'percent', 'kinds', 'complete')})
 
-    # ---------------- 游戏角：全都随便玩；勋章解锁积木的颜色和零件、游戏的玩法和印章，解锁了就一直在 ----------------
+    # ---------------- 縁側（游戏角）：全都随便玩；勋章解锁积木的颜色和零件、游戏的玩法和印章，解锁了就一直在 ----------------
     def json_error(error):
         return jsonify(error=str(error)), 400
 
@@ -711,7 +711,7 @@ def create_app(config=None):
             return json_error(error)
         return jsonify(result)
 
-    # ---------------- 学期回顾 ----------------
+    # ---------------- 学期绘卷 ----------------
     @app.get('/recap')
     @login_required
     def recap_page():

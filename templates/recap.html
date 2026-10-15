@@ -2,7 +2,7 @@
 {% from 'components/icon.html' import icon %}
 {% from 'components/medal.html' import medal %}
 {% from 'components/ui.html' import ava, hanko %}
-{% block title %}{{ recap.label }}回顾 · 搭把手{% endblock %}
+{% block title %}{{ recap.label }}绘卷 · 結 YUI{% endblock %}
 {% block body_class %}page-recap{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='share.js') }}" defer></script>{% endblock %}
 {% block content %}
@@ -15,7 +15,7 @@
       <path d="M600 400H460A140 140 0 0 1 600 260Z" fill="#F2B700"/>{% for i in range(5) %}<circle cx="{{ 300 + i * 22 }}" cy="70" r="5" fill="#fff"/>{% endfor %}
     </svg>
     <div class="slide-in">
-      <span class="case-label">学期回顾</span>
+      <span class="case-label">学期绘卷</span>
       <h1><span>{{ r.label }}</span>{{ g.user.name }} 的这一学期</h1>
       {% if days_left is not none %}<p>这学期还剩 {{ days_left }} 天，下面是到今天为止的你。期末再来看，会更完整。</p>{% endif %}
       {% if terms|length > 1 %}<nav class="term-pick" aria-label="其他学期">{% for t in terms %}<a class="chip" href="{{ url_for('recap_page', term=t) }}" {% if t == r.term %}aria-current="true"{% endif %}>{{ label(t) }}</a>{% endfor %}</nav>{% endif %}
@@ -85,7 +85,7 @@
     <div class="slide-in">
       {% if r.titles %}<p class="lead">这学期解锁的称号</p>
       <div class="slide-hanko">{% for t in r.titles %}<span style="--i:{{ loop.index0 }}">{{ hanko(t) }}<small>{{ t.how }}</small></span>{% endfor %}</div>{% endif %}
-      {% if r.lines or r.stamp %}<p class="small">游戏角：一笔画通关 {{ r.lines }} 关{% if r.stamp %}，盖章挑战最好 {{ r.stamp }} 分{% endif %}。</p>{% endif %}
+      {% if r.lines or r.stamp %}<p class="small">縁側：一笔画通关 {{ r.lines }} 关{% if r.stamp %}，盖章挑战最好 {{ r.stamp }} 分{% endif %}。</p>{% endif %}
     </div>
   </section>
   {% endif %}
@@ -101,13 +101,13 @@
 
   <section class="slide slide-end">
     <div class="slide-in">
-      <div class="recap-card" aria-label="学期回顾卡片">
+      <div class="recap-card" aria-label="学期绘卷卡片">
         <span class="rc-term">{{ r.label }}</span>
         <b class="rc-name">{{ g.user.name }}</b>
         <div class="rc-nums"><span><b class="num">{{ r.done }}</b>个任务</span><span><b class="num">+{{ r.gained }}</b>经验</span><span><b class="num">{{ r.helped|length }}</b>位队友</span></div>
         <div class="rc-medals">{% for key, n in r.medals %}{{ medal(key) }}{% endfor %}</div>
         {% if r.praises %}<p class="rc-quote">「{{ r.praises[0].text }}」<cite>— {{ r.praises[0].by }}</cite></p>{% endif %}
-        <span class="rc-foot">搭把手 · Lv.{{ r.level_to.level }} {{ r.level_to.name }}</span>
+        <span class="rc-foot">結 YUI · Lv.{{ r.level_to.level }} {{ r.level_to.name }}</span>
       </div>
       <div class="recap-actions">
         <button type="button" class="btn btn-big" data-save-recap>{{ icon('download') }}存成图片</button>

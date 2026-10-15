@@ -1,4 +1,4 @@
-/* 搭把手 · 全站交互与手感
+/* 結 YUI · 全站交互与手感
    参考卡普空、星露谷和樱井政博讲的手感原则：
    - 操作后 100ms 内一定有反馈；状态先保存，动画只是盖在上面的一层，点击或按 Esc 立即跳到结果。
    - 分级：悬停最轻；认领、提交、退回 ≤400ms 且不震；验收、勋章 ≤1s；集齐一套 ≤2s 且只播一次。
@@ -330,7 +330,7 @@
         <p class="award-kind">「${escapeHtml(award.title)}」 · ${escapeHtml(award.owner)} 验收${award.bonus ? ` · <b>冷门 +${award.bonus}</b>` : ''}</p>
         ${praise ? `<p class="award-praise">${escapeHtml(praise)}<cite>— ${escapeHtml(award.owner)}</cite></p>` : ''}
         <div class="award-meter" data-meter><span class="lv num" data-lv>Lv.${data.before.level}</span><span class="bar" style="--fill:var(--yellow)"><i style="width:${data.before.percent}%"></i></span><em><span data-xp>+0</span> 经验</em></div>
-        ${award.opens?.length ? `<p class="award-opens"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="5.5"/><path d="M8 10.5v4M6 12.5h4"/></svg><span>游戏角解锁：${award.opens.map(escapeHtml).join('、')}</span></p>` : ''}
+        ${award.opens?.length ? `<p class="award-opens"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="7" width="18" height="11" rx="5.5"/><path d="M8 10.5v4M6 12.5h4"/></svg><span>縁側解锁：${award.opens.map(escapeHtml).join('、')}</span></p>` : ''}
         ${counter()}`;
       label.textContent = summary(final);
       featureButton.textContent = '放上名牌';
@@ -542,9 +542,9 @@
       mailbox?.querySelector('b')?.remove();
       if (awards.length) {
         toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
-        // 这批勋章让游戏角多了东西（积木颜色、零件、玩法）：再报一声
+        // 这批勋章让縁側多了东西（积木颜色、零件、玩法）：再报一声
         if (unlocks.length) setTimeout(() => {
-          toast(`<span>游戏角解锁：${unlocks.slice(0, 2).map(escapeHtml).join('、')}${unlocks.length > 2 ? ` 等 ${unlocks.length} 样` : ''}</span>`);
+          toast(`<span>縁側解锁：${unlocks.slice(0, 2).map(escapeHtml).join('、')}${unlocks.length > 2 ? ` 等 ${unlocks.length} 样` : ''}</span>`);
           sfx('set');
         }, motionOn() ? 900 : 0);
       } else {

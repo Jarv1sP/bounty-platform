@@ -344,7 +344,10 @@ html:not([data-motion="off"]) .receipt{animation:receipt-in 380ms var(--arrive) 
 .auth{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
 .auth-art{position:relative;overflow:hidden;background:var(--blue);color:#fff;padding:48px;display:grid;align-content:space-between}
 .auth-art svg.compose{position:absolute;right:-40px;bottom:-30px;width:min(640px,90%);height:auto}
-.auth-art .logo{color:#fff;font-size:20px;position:relative}
+.auth-art .logo{position:relative}
+.auth-art .wordmark{color:#fff;font-size:30px}
+.auth-art .wordmark small{color:rgba(255,255,255,.75)}
+.auth-art .logo svg{width:40px;height:40px;padding:4px;border-radius:12px;background:#fff}
 .auth-art h1{position:relative;font-size:40px;line-height:1.3;max-width:9em}
 .auth-art p{position:relative;max-width:26em;opacity:.9}
 .auth-medals{position:relative;display:flex;gap:10px}
@@ -657,7 +660,7 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
   .inspect-close{top:12px;right:12px}
 }
 
-/* ================= 发现 · 纸条（鼓掌的回声、学期回顾） ================= */
+/* ================= 发现 · 纸条（鼓掌的回声、学期绘卷） ================= */
 .pinboard{display:flex;flex-wrap:wrap;gap:14px;margin:-6px 0 24px}
 .note-card{position:relative;display:flex;align-items:center;gap:12px;max-width:380px;padding:14px 18px 13px;border-radius:4px 4px 14px 4px;background:#FFF6D6;color:var(--ink);box-shadow:0 8px 18px -10px rgba(27,29,42,.35);transform:rotate(var(--r,0deg));transition:transform 260ms var(--pop);animation:note-in 620ms var(--pop) calc(200ms + var(--i) * 120ms) both}
 .note-card:hover{transform:rotate(0) translateY(-3px)}
@@ -712,7 +715,7 @@ html:not([data-motion="off"]) .compose .pc{animation:assemble 640ms var(--arrive
 .share-dialog p{font-size:12.5px;color:var(--sub)}
 .share-actions{display:flex;gap:10px}
 
-/* ================= 游戏角 ================= */
+/* ================= 縁側（游戏角） ================= */
 .play{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;padding-top:26px;padding-bottom:80px}
 .play-hero{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;align-items:stretch;padding:30px 32px;border-radius:28px;background:#1B1D2A radial-gradient(rgba(255,255,255,.07) 1.2px,transparent 1.7px) 0 0/22px 22px;color:#fff}
 .play-hero h1{margin-top:14px;font-size:38px;line-height:1.25}
@@ -858,7 +861,7 @@ a.lvl:hover{transform:translateY(-2px)}
 .result-actions{display:flex;gap:10px;margin-top:6px}
 .stamp-tip{margin-top:12px;text-align:center;font-size:12.5px;color:var(--sub)}
 
-/* ================= 学期回顾 ================= */
+/* ================= 学期绘卷 ================= */
 .recap{display:grid;gap:18px;padding-top:24px;padding-bottom:80px}
 .slide{position:relative;isolation:isolate;overflow:hidden;min-height:min(78vh,640px);display:grid;align-items:center;padding:56px clamp(24px,6vw,80px);border-radius:32px;background:var(--bg,#fff);color:var(--fg,var(--ink))}
 .slide-cover,.slide-ink{--bg:#1B1D2A;--fg:#fff}
@@ -961,7 +964,7 @@ html:not([data-motion="off"]) .scroll-hint svg{animation:hint 1.6s ease-in-out i
 .ticket b .hanko{font-size:10px;margin-left:8px;vertical-align:1px}
 .slide-in>.case-label,.slide-in>.scroll-hint,.slide-in>.btn{justify-self:start}
 
-/* ================= 游戏角 · 玩法列表、一笔画、盖章挑战的选项 ================= */
+/* ================= 縁側 · 玩法列表、一笔画、盖章挑战的选项 ================= */
 .road{padding:22px 24px}
 .game-card{position:relative;display:grid;grid-template-rows:200px auto 1fr;border-radius:24px;background:var(--paper);overflow:hidden}
 .game-card .game-art{transition:filter 200ms}
@@ -1028,7 +1031,7 @@ a.mode:active{transform:scale(.98)}
 }
 .stamp-cover{overflow:auto}
 
-/* ================= 游戏角 · 勋章解锁 ================= */
+/* ================= 縁側 · 勋章解锁 ================= */
 .wallet-swatches{display:flex;flex-wrap:wrap;gap:8px}
 .wallet-swatches i{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.25)}
 .wallet-swatches i.open{background:var(--c);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35)}
@@ -1197,4 +1200,8 @@ a.mode:active{transform:scale(.98)}
   .tag-row{grid-template-columns:24px minmax(0,1fr);grid-template-areas:"pos edit" ". use" ". tools"}
   .tag-edit{grid-template-columns:minmax(0,1fr)}
   .admin .panel{padding:18px 16px}
+}
+@media(max-width:760px){
+  .auth-art .compose{width:min(260px,62%);opacity:.5}
+  .auth-art p{font-size:13px}
 }

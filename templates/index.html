@@ -4,7 +4,7 @@
 {% from 'components/ui.html' import ava, due, task_card, csrf %}
 {% from 'components/picks.html' import lane_body %}
 {% from 'components/directions.html' import direction_bar with context %}
-{% block title %}发现 · 搭把手{% endblock %}
+{% block title %}发现 · 結 YUI{% endblock %}
 {% block body_class %}page-home{% endblock %}
 
 {% block content %}
@@ -49,7 +49,7 @@
     {% if term_left <= 21 %}
     <a class="note-card recap-note" href="{{ url_for('recap_page') }}" style="--r:1deg;--i:{{ notes|length }}">
       <i class="tape" aria-hidden="true"></i>{{ icon('book') }}
-      <span><b>{{ term_label }}还剩 {{ term_left }} 天</b><small>你的学期回顾已经能看了 →</small></span>
+      <span><b>{{ term_label }}还剩 {{ term_left }} 天</b><small>你的学期绘卷已经能看了 →</small></span>
     </a>
     {% endif %}
   </div>

@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 {% from 'components/icon.html' import icon %}
 {% set heading = {'level': '第 ' ~ value ~ ' 关 · ' ~ name, 'daily': name, 'random': '随机一笔 · 第 ' ~ value ~ ' 号'}[kind] %}
-{% block title %}一笔画 · {{ heading }} · 搭把手{% endblock %}
+{% block title %}一笔画 · {{ heading }} · 結 YUI{% endblock %}
 {% block body_class %}page-game{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='games.js') }}" defer></script>{% endblock %}
 {% block content %}
 <div class="wrap game-page">
   <header class="game-head">
-    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
+    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}縁側</a>
     <h1>一笔画<span>{{ heading }}</span></h1>
   </header>
   <div class="lines-layout">

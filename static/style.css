@@ -1,4 +1,4 @@
-/* 搭把手 · 全站样式
+/* 結 YUI · 全站样式
    现代日式：浅灰地面 + 白色面板，墨色撑结构；六个同色调的鲜艳色（取自「デザインあ」）只给勋章、色卡和状态用。
    不加载任何外部字体或图片，全部用系统字体和内联 SVG。 */
 :root{
@@ -31,11 +31,15 @@ img,svg{max-width:100%}
 /* ---------- 顶栏 ---------- */
 .top{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.92);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--line)}
 .top-in{max-width:var(--wrap);margin:0 auto;height:var(--top);padding:0 var(--gutter);display:flex;align-items:center;gap:26px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px;letter-spacing:.08em;white-space:nowrap}
-.logo svg{width:28px;height:28px;flex:none}
+.logo{display:flex;align-items:center;gap:8px;white-space:nowrap}
+.logo svg{width:30px;height:30px;flex:none}
 .logo svg *{transform-box:fill-box;transform-origin:center;transition:transform 420ms var(--pop)}
-.logo:hover svg circle{transform:translate(-2px,-2px)}
-.logo:hover svg rect{transform:translate(2px,2px) rotate(90deg)}
+/* 鼠标放上去：两个环往两边拉一下，扣得更紧 */
+.logo:hover svg :is(circle:nth-of-type(1),path){transform:translateX(-1.4px)}
+.logo:hover svg circle:nth-of-type(2){transform:translateX(1.4px)}
+/* 字标：「結」用明朝体，YUI 小写字距拉开 */
+.wordmark{display:inline-flex;align-items:baseline;gap:7px;font-family:'Hiragino Mincho ProN','Yu Mincho','YuMincho','Noto Serif CJK JP','Noto Serif CJK SC','Source Han Serif SC','Songti SC',serif;font-size:23px;font-weight:700;line-height:1;color:var(--ink)}
+.wordmark small{font:800 10.5px var(--num);letter-spacing:.3em;color:var(--sub)}
 .nav{display:flex;gap:4px}
 .nav a{position:relative;height:38px;display:inline-flex;align-items:center;gap:6px;padding:0 16px;border-radius:999px;color:var(--sub);font-weight:700;transition:background 160ms,color 160ms}
 .nav a:hover{background:var(--ground);color:var(--ink)}
@@ -283,7 +287,7 @@ html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="of
 .hanko.ghost{--c:var(--line-2);background:transparent;border-style:dashed;color:var(--faint)}
 .toast .hanko{font-size:11px}
 
-/* 游戏角有新解锁 */
+/* 縁側（游戏角）有新解锁 */
 .new-dot{display:inline-block;font:800 10.5px/18px var(--sans);font-style:normal;padding:0 6px;border-radius:9px;background:var(--yellow);color:var(--ink);transform:rotate(-6deg)}
 .tabbar .new-dot{position:absolute;top:0;left:calc(50% + 6px)}
 

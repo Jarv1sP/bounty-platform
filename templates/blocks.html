@@ -3,14 +3,14 @@
 {% from 'components/medal.html' import medal %}
 {% from 'components/blocks.html' import build_svg, part_icon %}
 {% from 'components/ui.html' import csrf %}
-{% block title %}积木 · 搭把手{% endblock %}
+{% block title %}积木 · 結 YUI{% endblock %}
 {% block body_class %}page-game page-blocks{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='blocks.js') }}" defer></script>{% endblock %}
 {% block content %}
 {% set open_parts = parts|selectattr('open')|list %}
 <div class="wrap game-page blocks-page">
   <header class="game-head">
-    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
+    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}縁側</a>
     <h1>积木<span>{{ open_parts|length }} / {{ parts|length }} 种零件 · {{ colors|selectattr('open')|list|length }} / {{ colors|length }} 种颜色</span></h1>
   </header>
 
