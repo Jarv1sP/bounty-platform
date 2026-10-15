@@ -32,4 +32,4 @@ services:
 networks:
   proxy:
     external: true
-    name: amax-console-net
+    name: ${BOUNTY_PROXY_NETWORK:?set BOUNTY_PROXY_NETWORK}

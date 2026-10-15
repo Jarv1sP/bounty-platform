@@ -3,17 +3,9 @@
 独立的本地完整应用：HTML/CSS/JavaScript 界面 + Flask 后端 + SQLite 数据库。
 发布任务、认领、提交、退回、验收、讨论和勋章都是真实操作，会保存到数据库。
 
-## 管理员部署入口
+## 部署到服务器
 
-`main` 是最新版，包含全部功能和云端部署配置，请阅读 [云端安装与维护](deploy/README.md)。
-`deploy/bounty-cloud` 分支与 `main` 保持一致，给已经按它安装的服务器拉更新用。
-
-```bash
-git clone https://github.com/halashaor/bounty-platform.git
-cd bounty-platform
-```
-
-已有 VPS 实例在 `/opt/bounty-platform`，独立容器已启动；交接时应先检查现有服务和数据，避免重复安装或覆盖。公网入口是否可用还取决于 DNS 与证书，详见部署文档。账号、邀请码和数据库不随源码发布。
+用 Docker 部署到服务器的做法见 [云端部署](deploy/README.md)。账号、邀请码和数据库不随源码发布。
 
 ## 获取与源码运行
 

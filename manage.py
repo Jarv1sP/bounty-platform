@@ -20,7 +20,7 @@ def main():
     admin = commands.add_parser('admin', help='Make a registered user an admin (maintains the team tag list)')
     admin.add_argument('name')
     admin.add_argument('--revoke', action='store_true', help='Take admin away instead')
-    user = commands.add_parser('create-user', help='Create a separate local account; never copies GPUQ accounts')
+    user = commands.add_parser('create-user', help='Create an account (optionally an admin)')
     user.add_argument('name')
     user.add_argument('--admin', action='store_true')
     user.add_argument('--password-stdin', action='store_true')

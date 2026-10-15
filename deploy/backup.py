@@ -1,4 +1,4 @@
-"""Online SQLite backup plus session secret. Run as root on the VPS; retain 30 daily copies."""
+"""Online SQLite backup plus session secret. Run as root on the host; retain 30 daily copies."""
 import argparse
 import os
 import shutil
