@@ -260,6 +260,8 @@ def person_stats(db, user_id):
 def my_tasks(db, user_id):
     """Group a person's tasks by whose move it is, newest activity first."""
     rows = db.execute('''SELECT t.*,u.name owner_name,a.name assignee_name,
+            (SELECT kind FROM events e WHERE e.task_id=t.id AND e.kind IN ('claim','submit','return','accept') ORDER BY e.id DESC LIMIT 1) state_kind,
+            (SELECT body FROM events e WHERE e.task_id=t.id AND e.kind='return' ORDER BY e.id DESC LIMIT 1) return_reason,
             (SELECT kind FROM events e WHERE e.task_id=t.id ORDER BY e.id DESC LIMIT 1) last_kind,
             (SELECT body FROM events e WHERE e.task_id=t.id ORDER BY e.id DESC LIMIT 1) last_body,
             (SELECT x.name FROM events e JOIN users x ON x.id=e.user_id WHERE e.task_id=t.id ORDER BY e.id DESC LIMIT 1) last_name,

@@ -1,4 +1,6 @@
 .venv/
+wheels/
+.deployment-private/
 __pycache__/
 instance/
 *.pyc

@@ -785,5 +785,35 @@ class WorkflowTest(unittest.TestCase):
             self.assertEqual(set(tags.names(db)), {'图论', '数据', 'PyTorch'})
 
 
+    def test_collection_link_finds_same_owned_medal(self):
+        self.finish(self.task_id)
+        match = create_task(self.path, 1, {**self.data, 'title': '继续整理'})
+        wrong = create_task(self.path, 1, {**self.data, 'title': '加急整理', 'urgency': 'urgent'})
+        mine = create_task(self.path, 2, {**self.data, 'title': '自己发布'})
+        page = self.clients[1].get('/honors').text
+        data = json.loads(page.split('<script type="application/json" id="case-data">')[1].split('</script>')[0])
+        page = self.clients[1].get(data['standard-normal']['find']).text
+        self.assertIn(f'data-task="{match}"', page)
+        self.assertNotIn(f'data-task="{wrong}"', page)
+        self.assertNotIn(f'data-task="{mine}"', page)
+
+    def test_all_pending_clap_notes_are_displayed(self):
+        for n in range(4):
+            task = create_task(self.path, 1, {**self.data, 'title': f'鼓掌任务{n}'})
+            self.finish(task)
+            clap(self.path, task, 3)
+        self.assertEqual(self.clients[1].get('/').text.count('为你鼓掌'), 4)
+        self.assertNotIn('为你鼓掌', self.clients[1].get('/').text)
+
+    def test_comment_does_not_hide_return_reason(self):
+        act(self.path, self.task_id, 2, 'claim')
+        act(self.path, self.task_id, 2, 'submit', '成果')
+        act(self.path, self.task_id, 1, 'return', '补充边界样例')
+        act(self.path, self.task_id, 2, 'comment', '收到')
+        page = self.clients[1].get('/mine').text
+        self.assertIn('被退回，等你改', page)
+        self.assertIn('补充边界样例', page)
+
+
 if __name__ == '__main__':
     unittest.main()

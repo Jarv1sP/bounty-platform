@@ -60,7 +60,7 @@ def create_app(config=None):
     app = Flask(__name__, instance_path=str(data_dir), instance_relative_config=True)
     app.config.update(DATABASE=str(data_dir / 'bounty.sqlite3'), DATA_DIR=str(data_dir),
                       MAX_CONTENT_LENGTH=128 * 1024, SESSION_COOKIE_HTTPONLY=True,
-                      SESSION_COOKIE_SAMESITE='Lax')
+                      SESSION_COOKIE_SAMESITE='Lax', SHOW_DEMO_LOGIN=True, INVITE_CODE='')
     app.config.update(settings)
     Path(app.config['DATABASE']).parent.mkdir(parents=True, exist_ok=True)
     if not app.config.get('SECRET_KEY'):
@@ -73,6 +73,21 @@ def create_app(config=None):
             pass
         app.config['SECRET_KEY'] = secret_path.read_text()
     initialize(app.config['DATABASE'])
+
+    @app.get('/healthz')
+    def health():
+        with connect(app.config['DATABASE']) as db:
+            db.execute('SELECT 1 FROM users LIMIT 1').fetchone()
+        return jsonify(status='ok')
+
+    @app.after_request
+    def response_headers(response):
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+        response.headers.setdefault('Referrer-Policy', 'same-origin')
+        if request.endpoint != 'static':
+            response.headers['Cache-Control'] = 'no-store'
+        return response
 
     def database(write=False):
         return connect(app.config['DATABASE'], write=write)
@@ -159,6 +174,9 @@ def create_app(config=None):
             abort(404)
         if request.method == 'POST':
             try:
+                if mode == 'register' and app.config['INVITE_CODE'] and not secrets.compare_digest(
+                        request.form.get('invite', '').encode(), app.config['INVITE_CODE'].encode()):
+                    raise InvalidAction('邀请码不正确，请向团队负责人获取。')
                 name = required(request.form, 'name', '用户名', 40)
                 password = request.form.get('password', '')
                 if not 8 <= len(password) <= 128:
@@ -208,6 +226,11 @@ def create_app(config=None):
             clauses.append('t.status=?'); params.append(status)
         if effort in IMPORTANCE:
             clauses.append('t.importance=?'); params.append(effort)
+        medal = request.args.get('medal', '')
+        if medal in MEDALS:
+            importance, urgency = medal.split('-')
+            clauses.extend(['t.importance=?', 't.urgency=?', 't.owner_id<>?', 't.deadline>?'])
+            params.extend([importance, urgency, g.user['id'], now()])
         if query:
             clauses.append('(t.title LIKE ? OR t.description LIKE ?)'); params.extend([f'%{query}%'] * 2)
         with database() as db:
@@ -249,7 +272,7 @@ def create_app(config=None):
                 (SELECT COUNT(*) FROM claps a WHERE a.task_id=t.id) total
             FROM claps c JOIN tasks t ON t.id=c.task_id JOIN users u ON u.id=c.user_id
             WHERE t.assignee_id=? AND c.created_at>? AND c.created_at>?
-            GROUP BY t.id ORDER BY MAX(c.created_at) DESC LIMIT 3''', (g.user['id'], seen, recent)).fetchall()
+            GROUP BY t.id ORDER BY MAX(c.created_at) DESC''', (g.user['id'], seen, recent)).fetchall()
         if notes:
             with database(write=True) as writer:
                 writer.execute('UPDATE users SET notes_seen_at=? WHERE id=?', (now(), g.user['id']))
@@ -433,7 +456,7 @@ def create_app(config=None):
                 name=info['name'], hue=info['hue'], count=len(got), xp=sum(task_xp(key) + award['bonus'] for award in got),
                 each=progress.task_xp(key), kind=f'{EFFORT[importance]} · {IMPORTANCE[importance]} · {URGENCY[urgency]}',
                 first=month_day(got[-1]['awarded_at']) if got else '', can_get=can_get[key], plate=key in featured,
-                find=url_for('index', effort=importance, unlock='1') + '#browse-title',
+                find=url_for('index', medal=key) + '#browse-title',
                 # 勋章背面：刻最近一句夸奖，没有夸奖就刻任务名
                 back=dict(quote=face['praise'] if praised else face['title'], by=face['owner_name'],
                           on=month_day(face['awarded_at']), praised=bool(praised)) if face else None,

@@ -1,0 +1,7 @@
+[Unit]
+Description=Bounty platform SQLite backup
+
+[Service]
+Type=oneshot
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/bounty-platform/backup.py
