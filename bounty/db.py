@@ -180,6 +180,11 @@ def initialize(path):
             # 老用户从现在开始收纸条，不把以前的鼓掌一股脑翻出来
             db.execute('ALTER TABLE users ADD COLUMN notes_seen_at TEXT')
             db.execute("UPDATE users SET notes_seen_at=strftime('%Y-%m-%dT%H:%M:%S+00:00','now')")
+        if 'appreciations' in tables:
+            # 旧版 v1.1.0 的「有帮助」标记：意思和鼓掌一样，升级时变成鼓掌（原表留着不动）
+            db.execute('''INSERT OR IGNORE INTO claps (task_id,user_id,created_at)
+                SELECT a.task_id,a.user_id,a.created_at FROM appreciations a JOIN tasks t ON t.id=a.task_id
+                WHERE t.status='done' AND t.assignee_id<>a.user_id''')
         # Older tasks had one fixed category; it becomes their first tag so search and recommendations keep working.
         db.execute('INSERT OR IGNORE INTO task_tags (task_id,tag) SELECT id,category FROM tasks WHERE id NOT IN (SELECT task_id FROM task_tags)')
         if new_tag_table:

@@ -84,7 +84,7 @@ def build():
     manifest = {str(path.relative_to(package)).replace('\\', '/'): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted(package.rglob('*')) if path.is_file()}
     (package / 'MANIFEST.sha256.json').write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding='utf-8')
-    archive = dist / 'bounty-platform-local-v1.0.0.zip'
+    archive = dist / 'yui-local-v2.0.0.zip'
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zip_file:
         for path in sorted(package.rglob('*')):
             if path.is_file():

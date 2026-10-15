@@ -784,6 +784,19 @@ class WorkflowTest(unittest.TestCase):
         with connect(legacy) as db:
             self.assertEqual(set(tags.names(db)), {'图论', '数据', 'PyTorch'})
 
+    def test_v11_helpful_marks_become_claps(self):
+        self.finish(self.task_id)
+        with connect(self.path, write=True) as db:
+            db.execute('CREATE TABLE appreciations (task_id INTEGER, user_id INTEGER, created_at TEXT, PRIMARY KEY(task_id,user_id))')
+            db.executemany('INSERT INTO appreciations VALUES (?,?,?)', [(self.task_id, 1, '2026-10-14T00:00:00+00:00'),
+                                                                        (self.task_id, 3, '2026-10-14T00:00:00+00:00'),
+                                                                        (self.task_id, 2, '2026-10-14T00:00:00+00:00')])
+        initialize(self.path)
+        initialize(self.path)
+        with connect(self.path) as db:
+            # 自己给自己的那条不算；重复启动不会重复加
+            self.assertEqual(sorted(row[0] for row in db.execute('SELECT user_id FROM claps WHERE task_id=?', (self.task_id,))), [1, 3])
+
 
 if __name__ == '__main__':
     unittest.main()
