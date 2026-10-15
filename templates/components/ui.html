@@ -15,10 +15,17 @@
 {%- else -%}<span class="due{{ ' soon' if info[1] }}">{{ info[0] }}</span>{%- endif -%}
 {%- endmacro %}
 
-{# 名牌：背景取第一枚展示勋章的颜色，装饰图形就是点、线、面 #}
-{% macro plate(name, level, featured, size='') -%}
+{# 称号印章：像日本的判子，四个字两列、三个字一列，从右往左读 #}
+{% macro hanko(title, cls='') -%}
+<span class="hanko n{{ title.name|length }}{{ ' ' ~ cls if cls }}" style="--c:{{ title.color }}"><i>{{ title.name }}</i></span>
+{%- endmacro %}
+
+{# 名牌：背景取第一枚展示勋章的颜色，装饰图形就是点、线、面；挂了称号就在右上角盖一个印章；集齐六种勋章换金边 #}
+{% macro plate(name, level, featured, size='', title=none, complete=false) -%}
 {%- set bg = medals[featured[0]].hue if featured else '#9A9DA8' -%}
-<div class="plate{{ ' ' ~ size if size }}" style="--plate:{{ bg }}">
+<div class="plate{{ ' ' ~ size if size }}{{ ' complete' if complete }}" style="--plate:{{ bg }}">
+  {% if title %}{{ hanko(title, 'plate-seal') }}{% endif %}
+  {% if complete %}<span class="plate-crown">全收集</span>{% endif %}
   <svg class="plate-art" viewBox="0 0 280 180" preserveAspectRatio="xMaxYMax meet" aria-hidden="true">
     <path d="M280 180H150A130 130 0 0 1 280 50Z" fill="{{ '#2866B1' if bg == '#F2B700' else '#F2B700' }}"/>
     <circle cx="168" cy="34" r="3.4" fill="#fff"/><circle cx="180" cy="34" r="3.4" fill="#fff"/><circle cx="191" cy="34" r="3.4" fill="#fff"/>
@@ -36,11 +43,11 @@
 {%- set wants = task.status == 'open' and key not in earned -%}
 <article class="card{{ ' done' if task.status == 'done' }}{{ ' wants' if wants }}" data-task="{{ task.id }}" style="--i:{{ i }}">
   <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
-  <div class="card-top">{{ medal(key) }}{% if wants %}<span class="newtag">新勋章</span>{% endif %}{{ due(task) }}</div>
+  <div class="card-top">{{ medal(key) }}{% if wants %}<span class="newtag">新勋章</span>{% endif %}{% set waited = cold_days(task) %}{% if waited %}<span class="coldtag" title="等了 {{ waited }} 天没人接，完成后经验 +20%">冷门 +20%</span>{% endif %}{{ due(task) }}</div>
   <h3>{{ task.title }}</h3>
   <p class="goal">{{ task.description }}</p>
   {% if tags %}<div class="tags">{% for tag in tags[:3] %}<span class="tag">{{ tag }}</span>{% endfor %}</div>{% endif %}
-  <div class="card-foot"><span class="eff">{{ effort_labels[task.importance] }}</span><span class="xp">+{{ task_xp(key) }}</span><span class="who">{{ ava(task.owner_name, task.owner_id) }}{{ task.owner_name }}</span></div>
+  <div class="card-foot"><span class="eff">{{ effort_labels[task.importance] }}</span><span class="xp">+{{ offer_xp(task) }}</span><span class="who">{{ ava(task.owner_name, task.owner_id) }}{{ task.owner_name }}</span></div>
 </article>
 {%- endmacro %}
 

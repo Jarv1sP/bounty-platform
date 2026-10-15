@@ -3,7 +3,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from .honors import MEDALS, medal_key
-from .service import CATEGORIES, now
+from .service import CATEGORIES, is_cold, now, waited_days
 
 
 def _parse(value):
@@ -137,6 +137,10 @@ def recommend(db, user_id, limit=3, batch=0, lane='all', exclude=()):
         if task['urgency'] == 'urgent':
             score += 1.5
             reasons.append((1.5, 'urgent', '急需人手'))
+        # 冷门：等了好几天没人接的，往前放一点，接下它的人经验 +20%
+        if is_cold(task):
+            score += 1.2
+            reasons.append((1.6, 'cold', f'等了 {waited_days(task)} 天没人接 · 经验 +20%'))
         if newcomer and task['importance'] == 'light':
             score += 1
             reasons.append((1, 'quick', '半天能做完，适合先上手'))

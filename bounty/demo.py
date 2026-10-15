@@ -44,6 +44,8 @@ PRAISE = {'整理上周周赛的错题': '写得很清楚', '补全 50 道题的
 # 已经拆开看过的勋章（其余的留在信箱里，登录后能看到颁奖）
 SEEN = ('整理上周周赛的错题', '补全 50 道题的样例解释', '连夜改好报名表')
 INTERESTS = {'认领人': '图论 PyTorch', '王瑶': '数据 论文'}
+# 发布了一周还没人接的冷门任务（其中一个后来被认领人接下并完成，带冷门加成）
+COLD = {'整理 DP 专题题单': 8, '整理历年校赛题目归档': 6, '补全 50 道题的样例解释': 9}
 CLAPS = {'写周会纪要模板': ('王瑶', '陈默'), '清洗去年比赛的提交记录': ('陈默', '周然', '林夕'),
          '修好评测机的内存统计': ('认领人', '王瑶', '周然', '林夕'), '复现 GCN 的 baseline': ('陈默', '王瑶')}
 
@@ -64,6 +66,10 @@ def seed_demo(path):
             requirements='提交成果链接和一段说明；发布者对照说明验收，需要修改时写明原因。',
             importance=importance, urgency=urgency, deadline=(soon + timedelta(days=days, hours=10)).isoformat(timespec='seconds'),
         ))
+        if title in COLD:
+            with connect(path, write=True) as db:
+                db.execute('UPDATE tasks SET created_at=? WHERE id=?',
+                           ((soon - timedelta(days=COLD[title])).isoformat(timespec='seconds'), task_id))
         if stage == 'open':
             continue
         act(path, task_id, U[worker], 'claim')

@@ -59,7 +59,41 @@ CREATE TABLE IF NOT EXISTS claps (
  created_at TEXT NOT NULL,
  PRIMARY KEY(task_id,user_id)
 );
+CREATE TABLE IF NOT EXISTS titles_seen (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ key TEXT NOT NULL,
+ seen_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,key)
+);
+CREATE TABLE IF NOT EXISTS tickets (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ delta INTEGER NOT NULL,
+ reason TEXT NOT NULL,
+ task_id INTEGER REFERENCES tasks(id),
+ ref TEXT,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tickets_by_user ON tickets(user_id);
+CREATE TABLE IF NOT EXISTS game_runs (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ game TEXT NOT NULL,
+ started_at TEXT NOT NULL,
+ finished_at TEXT,
+ score INTEGER,
+ combo INTEGER
+);
+CREATE TABLE IF NOT EXISTS lines_solved (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ level INTEGER NOT NULL,
+ solved_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,level)
+);
 '''
+# 每验收一个任务发几张游戏券（冷门任务再 +1）；新账号先送几张试玩
+TICKETS = {'light': 1, 'standard': 2, 'major': 3}
+STARTER_TICKETS = 2
 
 
 @contextmanager
@@ -106,8 +140,20 @@ def initialize(path):
         db.executescript(SCHEMA)
         if 'seen_at' not in {row['name'] for row in db.execute('PRAGMA table_info(honors)')}:
             db.execute('ALTER TABLE honors ADD COLUMN seen_at TEXT')
-        if 'project' not in {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}:
+        task_columns = {row['name'] for row in db.execute('PRAGMA table_info(tasks)')}
+        if 'project' not in task_columns:
             db.execute('ALTER TABLE tasks ADD COLUMN project TEXT')
+        if 'cold' not in task_columns:   # 等了好几天才有人接的任务，完成时多给经验
+            db.execute('ALTER TABLE tasks ADD COLUMN cold INTEGER NOT NULL DEFAULT 0')
+        if 'bonus' not in {row['name'] for row in db.execute('PRAGMA table_info(honors)')}:
+            db.execute('ALTER TABLE honors ADD COLUMN bonus INTEGER NOT NULL DEFAULT 0')
+        user_columns = {row['name'] for row in db.execute('PRAGMA table_info(users)')}
+        if 'title_key' not in user_columns:
+            db.execute('ALTER TABLE users ADD COLUMN title_key TEXT')
+        if 'notes_seen_at' not in user_columns:
+            # 老用户从现在开始收纸条，不把以前的鼓掌一股脑翻出来
+            db.execute('ALTER TABLE users ADD COLUMN notes_seen_at TEXT')
+            db.execute("UPDATE users SET notes_seen_at=strftime('%Y-%m-%dT%H:%M:%S+00:00','now')")
         # Older tasks had one fixed category; it becomes their first tag so search and recommendations keep working.
         db.execute('INSERT OR IGNORE INTO task_tags (task_id,tag) SELECT id,category FROM tasks WHERE id NOT IN (SELECT task_id FROM task_tags)')
         # Also resumes safely if startup was interrupted after the table migration.
@@ -115,3 +161,9 @@ def initialize(path):
             SELECT t.id,t.assignee_id,t.importance || '-' || t.urgency,
                    COALESCE((SELECT MAX(created_at) FROM events WHERE task_id=t.id AND kind='accept'),t.created_at)
             FROM tasks t WHERE t.status='done' AND t.assignee_id IS NOT NULL''')
+        # 每枚勋章都对应一笔游戏券；上线这个功能之前拿到的勋章也补上
+        db.execute(f'''INSERT INTO tickets (user_id,delta,reason,task_id,created_at)
+            SELECT h.user_id, CASE t.importance {' '.join(f"WHEN '{k}' THEN {v}" for k, v in TICKETS.items())} END + t.cold,
+                   'task', h.task_id, h.awarded_at
+            FROM honors h JOIN tasks t ON t.id=h.task_id
+            WHERE NOT EXISTS (SELECT 1 FROM tickets k WHERE k.reason='task' AND k.task_id=h.task_id)''')

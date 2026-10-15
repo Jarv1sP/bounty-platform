@@ -7,7 +7,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from app import create_app
 from bounty.db import connect, initialize
-from bounty import discover, progress
+from bounty import discover, games, progress, titles
+from bounty.db import STARTER_TICKETS
 from bounty.service import InvalidAction, act, clap, create_task, dismiss, parse_tags, set_interests
 from bounty.honors import MEDALS, medal_key
 
@@ -481,6 +482,164 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn('class="inspect"', page)
         self.assertIn('Lv.', self.clients[1].get('/').text)
         self.assertIn('mini-case', self.clients[1].get('/').text)
+
+    def age(self, task_id, days):
+        with connect(self.path, write=True) as db:
+            db.execute('UPDATE tasks SET created_at=? WHERE id=?',
+                       ((datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec='seconds'), task_id))
+
+    def test_cold_tasks_pay_extra_experience_and_tickets(self):
+        self.age(self.task_id, 6)
+        with connect(self.path) as db:
+            pick = next(p for p in discover.recommend(db, 2, limit=10) if p['task']['id'] == self.task_id)
+            self.assertIn('cold', dict(pick['reasons']))
+            self.assertEqual(games.balance(db, 2), STARTER_TICKETS)
+        self.assertIn('冷门 +20%', self.clients[1].get('/').text)
+        self.finish(self.task_id)
+        with connect(self.path) as db:
+            honor = db.execute('SELECT * FROM honors WHERE task_id=?', (self.task_id,)).fetchone()
+            self.assertEqual(honor['bonus'], 6)                       # 常规 30 经验的 20%
+            self.assertEqual(progress.person_progress(db, 2)['xp'], 36)
+            self.assertEqual(games.balance(db, 2), STARTER_TICKETS + 3)   # 常规 2 张 + 冷门 1 张
+        # 新鲜的任务不算冷门
+        fresh = create_task(self.path, 1, self.data)
+        self.finish(fresh)
+        with connect(self.path) as db:
+            self.assertEqual(db.execute('SELECT bonus FROM honors WHERE task_id=?', (fresh,)).fetchone()[0], 0)
+
+    def test_titles_unlock_from_behaviour_and_arrive_once(self):
+        for _ in range(3):
+            self.finish(create_task(self.path, 1, {**self.data, 'urgency': 'urgent'}), body='救了急')
+        worker = self.clients[1]
+        self.assertIn('mailbox has-mail', worker.get('/').text)
+        with connect(self.path) as db:
+            board = {item['key']: item for item in titles.board(db, 2)}
+            self.assertTrue(board['firefighter']['done'])
+            self.assertEqual((board['praised']['have'], board['praised']['done']), (3, False))
+            self.assertTrue({item['key'] for item in titles.board(db, 1) if item['done']} == set())
+        revealed = self.post_json(worker, '/honors/reveal')
+        self.assertIn('firefighter', [t['key'] for t in revealed['titles']])
+        self.assertEqual(revealed['awards'][0]['debut'], True)
+        self.assertEqual(self.post_json(worker, '/honors/reveal')['titles'], [])
+        # 只能挂已经解锁的称号
+        self.assertEqual(worker.post('/honors/title', data={'csrf': self.csrf(worker), 'title': 'stamper'},
+                                     headers={'Accept': 'application/json'}).status_code, 400)
+        self.post(worker, '/honors/title', {'title': 'firefighter'})
+        page = worker.get('/honors').text
+        self.assertIn('plate-seal', page)
+        self.assertIn('救火队员', page)
+        # 发布者也有自己的称号：发布的任务成了别人的第一枚勋章
+        with connect(self.path) as db:
+            self.assertEqual(titles.counts(db, 1)['mentor'], 1)
+
+    def test_full_collection_is_its_own_moment(self):
+        keys = list(MEDALS)
+        for key in keys:
+            importance, urgency = key.split('-')
+            self.finish(create_task(self.path, 1, {**self.data, 'importance': importance, 'urgency': urgency}))
+        awards = self.post_json(self.clients[1], '/honors/reveal')['awards']
+        self.assertEqual([a['tier'] for a in awards][-1], 'all')
+        self.assertIn('class="plate big complete"', self.clients[1].get('/honors').text)
+
+    def test_one_stroke_levels_unlock_with_tickets_and_are_checked_on_the_server(self):
+        from collections import defaultdict
+        def euler(level):
+            _, nodes, edges = games.LEVELS[level - 1]
+            adj = defaultdict(list)
+            for i, (a, b) in enumerate(edges):
+                adj[a].append((b, i)); adj[b].append((a, i))
+            odd = [v for v in adj if len(adj[v]) % 2]
+            stack, path, used = [odd[0] if odd else edges[0][0]], [], set()
+            while stack:
+                v = stack[-1]
+                while adj[v] and adj[v][-1][1] in used:
+                    adj[v].pop()
+                if adj[v]:
+                    w, i = adj[v].pop(); used.add(i); stack.append(w)
+                else:
+                    path.append(stack.pop())
+            return path[::-1]
+        for level in range(1, len(games.LEVELS) + 1):
+            self.assertTrue(games.check_stroke(level, euler(level)), level)
+        worker = self.clients[1]
+        self.assertEqual(self.post_json(worker, '/play/lines/unlock', status=400)['error'], '先把这一关画完，再解锁下一关。')
+        self.assertEqual(self.post_json(worker, '/play/lines/1', {'stroke': '0,1'}, status=400)['error'], '还没有一笔走完所有的线。')
+        self.assertEqual(self.post_json(worker, '/play/lines/2', {'stroke': '0,1,2,0'}, status=400)['error'], '这一关还没解锁。')
+        solved = self.post_json(worker, '/play/lines/1', {'stroke': ','.join(map(str, euler(1)))})
+        self.assertTrue(solved['first'] and solved['can_unlock'])
+        self.assertEqual(self.post_json(worker, '/play/lines/unlock')['level'], 2)
+        self.post_json(worker, '/play/lines/2', {'stroke': ','.join(map(str, euler(2)))})
+        self.post_json(worker, '/play/lines/unlock')
+        # 两张试玩券用完了
+        self.post_json(worker, '/play/lines/3', {'stroke': ','.join(map(str, euler(3)))})
+        self.assertIn('游戏券用完了', self.post_json(worker, '/play/lines/unlock', status=400)['error'])
+        with connect(self.path, write=True) as db:
+            db.executemany('INSERT OR IGNORE INTO lines_solved (user_id,level,solved_at) VALUES (2,?,?)',
+                           [(n, '2026-01-01T00:00:00+00:00') for n in range(4, 13)])
+            self.assertEqual(games._new_game_titles(db, 2)[0]['key'], 'oneline')
+
+    def test_stamp_runs_cost_a_ticket_and_reject_impossible_results(self):
+        worker = self.clients[1]
+        run = self.post_json(worker, '/play/stamp/start')['run']
+        self.assertIn('时间不对', self.post_json(worker, f'/play/stamp/{run}', {'score': 500, 'combo': 5}, status=400)['error'])
+        with connect(self.path, write=True) as db:
+            db.execute('UPDATE game_runs SET started_at=? WHERE id=?',
+                       ((datetime.now(timezone.utc) - timedelta(seconds=31)).isoformat(timespec='seconds'), run))
+        self.assertIn('分数不对', self.post_json(worker, f'/play/stamp/{run}', {'score': 10 ** 7, 'combo': 5}, status=400)['error'])
+        result = self.post_json(worker, f'/play/stamp/{run}', {'score': 4200, 'combo': 31})
+        self.assertEqual(result['best'], {'score': 4200, 'combo': 31, 'runs': 1})
+        self.assertEqual(result['titles'][0]['key'], 'stamper')
+        self.assertIn('已经结束', self.post_json(worker, f'/play/stamp/{run}', {'score': 9000, 'combo': 31}, status=400)['error'])
+        self.post_json(worker, '/play/stamp/start')
+        self.assertIn('游戏券用完了', self.post_json(worker, '/play/stamp/start', status=400)['error'])
+        self.assertIn('游戏券', worker.get('/play').text)
+
+    def test_claps_come_back_as_a_note_once(self):
+        self.finish(self.task_id)
+        clap(self.path, self.task_id, 1)
+        clap(self.path, self.task_id, 3)
+        worker = self.clients[1]
+        home = worker.get('/').text
+        self.assertIn('为你鼓掌', home)
+        self.assertIn('owner、other', home.replace('other、owner', 'owner、other'))
+        self.assertNotIn('为你鼓掌', worker.get('/').text)
+
+    def test_first_task_is_flagged_for_the_publisher(self):
+        act(self.path, self.task_id, 2, 'claim')
+        act(self.path, self.task_id, 2, 'submit', '成果')
+        self.assertIn('的第一个任务', self.clients[0].get(f'/tasks/{self.task_id}').text)
+        act(self.path, self.task_id, 1, 'accept', '欢迎加入')
+        self.assertIn('的第一枚勋章', self.clients[2].get(f'/tasks/{self.task_id}').text)
+        second = create_task(self.path, 1, self.data)
+        act(self.path, second, 2, 'claim')
+        self.assertNotIn('的第一个任务', self.clients[0].get(f'/tasks/{second}').text)
+
+    def test_term_recap(self):
+        from bounty import recap
+        self.assertEqual(recap.term_of(datetime(2026, 1, 20, tzinfo=timezone.utc)), '2025-autumn')
+        self.assertEqual(recap.term_of(datetime(2026, 3, 1, tzinfo=timezone.utc)), '2026-spring')
+        self.assertEqual(recap.term_of(datetime(2026, 9, 1, tzinfo=timezone.utc)), '2026-autumn')
+        self.assertIsNone(recap.bounds('2026-summer'))
+        self.finish(self.task_id, body='写得很清楚')
+        term = recap.term_of(datetime.now(timezone.utc))
+        with connect(self.path) as db:
+            data = recap.build(db, 2, term)
+        self.assertEqual((data['done'], data['gained'], data['helped']), (1, 30, ['owner']))
+        self.assertEqual(data['praises'][0]['text'], '写得很清楚')
+        page = self.clients[1].get('/recap').text
+        self.assertIn('写得很清楚', page)
+        self.assertIn('data-save-recap', page)
+        self.assertEqual(self.clients[1].get('/recap?term=nope').status_code, 404)
+
+    def csrf(self, client):
+        client.get('/auth/login')
+        with client.session_transaction() as session:
+            return session['csrf']
+
+    def post_json(self, client, path, data=None, status=200):
+        response = client.post(path, data={**(data or {}), 'csrf': self.csrf(client)}, headers={'Accept': 'application/json'})
+        self.assertEqual(response.status_code, status, response.text)
+        return response.json
 
 
 if __name__ == '__main__':

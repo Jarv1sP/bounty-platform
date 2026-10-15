@@ -148,9 +148,19 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
   assert ev("document.querySelector('.inspect').open && document.getAnimations().length===0")
   ev("document.querySelector('[data-inspect-close]').click()")
   call('Emulation.setEmulatedMedia',{'features':[]})
+  # 游戏角：一笔画第一关用真实的鼠标拖一遍，服务器检查笔画后记为通关
+  nav('/play/lines')
+  pts=ev("[...document.querySelectorAll('[data-node]')].map(c=>{const r=c.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})")
+  call('Input.dispatchMouseEvent',{'type':'mousePressed','x':pts[0][0],'y':pts[0][1],'button':'left','clickCount':1})
+  for x,y in pts[1:]:
+   call('Input.dispatchMouseEvent',{'type':'mouseMoved','x':x,'y':y,'button':'left'})
+  call('Input.dispatchMouseEvent',{'type':'mouseReleased','x':pts[-1][0],'y':pts[-1][1],'button':'left','clickCount':1})
+  wait("!document.querySelector('[data-solved]').hidden")
+  with connect(app.config['DATABASE']) as db:
+   assert db.execute('SELECT COUNT(*) FROM lines_solved').fetchone()[0]==1
   for width in (1440,390):
    call('Emulation.setDeviceMetricsOverride',{'width':width,'height':1150 if width==1440 else 1500,'deviceScaleFactor':1,'mobile':False})
-   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors')]:
+   for name,path in [('hall','/'),('detail',flow_path),('new','/tasks/new'),('honors','/honors'),('play','/play'),('lines','/play/lines'),('stamp','/play/stamp'),('recap','/recap')]:
     nav(path);time.sleep(.5)
     assert ev('document.documentElement.scrollWidth<=innerWidth'),(name,width)
     shot('motion-'+name+('-desktop' if width==1440 else '-mobile'))
@@ -158,7 +168,7 @@ with tempfile.TemporaryDirectory(prefix='bounty-motion-') as root:
    assert db.execute('SELECT COUNT(*) FROM honors').fetchone()[0]==1
    assert db.execute('SELECT COUNT(*) FROM featured_honors').fetchone()[0]==1
    assert [row[0] for row in db.execute('SELECT tag FROM interests')]==['测试']
-  print('PASS: live browser publish, claim, validation, return/resubmit, praise + accept, private one-time ceremony, medal case + inspector, nameplate, picks, live direction lane, task wall paging, motion opt-out, reduced motion, 8 responsive views')
+  print('PASS: live browser publish, claim, validation, return/resubmit, praise + accept, private one-time ceremony, medal case + inspector, nameplate, picks, live direction lane, task wall paging, motion opt-out, reduced motion, one-stroke game, 16 responsive views')
   ws.close()
  finally:
   proc.terminate()

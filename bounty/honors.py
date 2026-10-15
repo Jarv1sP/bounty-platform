@@ -15,3 +15,20 @@ MEDALS = {
 
 def medal_key(task):
     return f"{task['importance']}-{task['urgency']}"
+
+
+# 经验按工作量给：重要任务约等于八个轻量任务，愿意啃硬骨头的人升级更快；加急多 50%。
+XP = {'light': 10, 'standard': 30, 'major': 80}
+# 等了这么多天还没人接的任务算「冷门」：接下它的人完成后经验再多 20%
+COLD_DAYS = 5
+COLD_BONUS = 0.2
+
+
+def task_xp(key):
+    importance, urgency = key.split('-')
+    base = XP[importance]
+    return base + base // 2 if urgency == 'urgent' else base
+
+
+def cold_bonus(key):
+    return round(task_xp(key) * COLD_BONUS)

@@ -164,7 +164,7 @@
         <div><b class="num">${esc(d.first)}</b><small>第一次拿到</small></div>
       </div>
       <h3>每一次</h3>
-      <ol class="tickets">${d.history.map(h => `<li class="ticket"><span class="stamp-date" style="--c:${d.hue}">${esc(h.on)}</span><b><a href="${esc(h.task)}">${esc(h.title)}</a></b><span>${esc(h.by)} 验收${h.praise ? ` · <q>${esc(h.praise)}</q>` : ''}${h.claps ? ` · ${h.claps} 次鼓掌` : ''}</span></li>`).join('')}</ol>
+      <ol class="tickets">${d.history.map(h => `<li class="ticket"><span class="stamp-date" style="--c:${d.hue}">${esc(h.on)}</span><b><a href="${esc(h.task)}">${esc(h.title)}</a>${h.debut ? '<span class="hanko n1" style="--c:#E54465" title="你的第一枚勋章"><i>初</i></span>' : ''}</b><span>${esc(h.by)} 验收${h.praise ? ` · <q>${esc(h.praise)}</q>` : ''}${h.bonus ? ` · 冷门 +${h.bonus}` : ''}${h.claps ? ` · ${h.claps} 次鼓掌` : ''}</span></li>`).join('')}</ol>
       <div class="inspect-actions"><a class="btn btn-line btn-sm" href="${esc(d.find)}">再找一个「${esc(d.name)}」任务</a></div>`
       : `
       <span class="inspect-kicker">${esc(d.kind)}</span>

@@ -2,8 +2,8 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
-from .db import connect
-from .honors import IMPORTANCE, URGENCY, medal_key
+from .db import TICKETS, connect
+from .honors import COLD_DAYS, IMPORTANCE, URGENCY, cold_bonus, medal_key
 
 # Suggested starter tags only: teams add their own tags and projects freely, nothing is limited to this list.
 CATEGORIES = ('实验', '数据', '论文', '代码', '讲解', '杂务')
@@ -17,6 +17,18 @@ KINDS = {'claim': '认领任务', 'submit': '提交成果', 'accept': '验收通
 
 class InvalidAction(ValueError):
     pass
+
+
+def waited_days(task, at=None):
+    """How long an open task has gone unclaimed."""
+    created = datetime.fromisoformat(task['created_at'])
+    created = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+    return ((at or datetime.now(timezone.utc)) - created).days
+
+
+def is_cold(task):
+    """Still open after COLD_DAYS days, or claimed only after that long: worth 20% more experience."""
+    return bool(task['cold']) or (task['status'] == 'open' and waited_days(task) >= COLD_DAYS)
 
 
 def now():
@@ -102,7 +114,9 @@ def act(path, task_id, user_id, action, body=''):
         if action == 'claim':
             if owner or status != 'open' or task['deadline'] <= now():
                 raise InvalidAction('无法认领：任务已被认领、已截止，或由你发布。')
-            db.execute("UPDATE tasks SET assignee_id=?, status='active' WHERE id=?", (user_id, task_id))
+            # 认领那一刻就定下是不是冷门，之后再怎么退回都不变
+            db.execute("UPDATE tasks SET assignee_id=?, status='active', cold=? WHERE id=?",
+                       (user_id, int(waited_days(task) >= COLD_DAYS), task_id))
             body = '已认领，开始处理。'
         elif action == 'submit':
             if not assignee or status != 'active' or not body:
@@ -116,8 +130,11 @@ def act(path, task_id, user_id, action, body=''):
             db.execute('UPDATE tasks SET status=? WHERE id=?', ('done' if action == 'accept' else 'active', task_id))
             body = body or '成果验收通过。'
             if action == 'accept':
-                db.execute('INSERT INTO honors (task_id,user_id,medal_key,awarded_at) VALUES (?,?,?,?)',
-                           (task_id, task['assignee_id'], medal_key(task), now()))
+                key = medal_key(task)
+                db.execute('INSERT INTO honors (task_id,user_id,medal_key,awarded_at,bonus) VALUES (?,?,?,?,?)',
+                           (task_id, task['assignee_id'], key, now(), cold_bonus(key) if task['cold'] else 0))
+                db.execute("INSERT INTO tickets (user_id,delta,reason,task_id,created_at) VALUES (?,?,'task',?,?)",
+                           (task['assignee_id'], TICKETS[task['importance']] + task['cold'], task_id, now()))
         elif action == 'comment':
             if not body:
                 raise InvalidAction('讨论内容不能为空。')

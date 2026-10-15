@@ -1,0 +1,123 @@
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% from 'components/medal.html' import medal %}
+{% from 'components/ui.html' import ava, hanko %}
+{% block title %}{{ recap.label }}回顾 · 搭把手{% endblock %}
+{% block body_class %}page-recap{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='share.js') }}" defer></script>{% endblock %}
+{% block content %}
+{% set r = recap %}
+<div class="wrap recap">
+  {# 一页一页往下翻的学期故事：每一屏只说一件事，数字进屏时数上去 #}
+  <section class="slide slide-cover">
+    <svg class="slide-art" viewBox="0 0 600 400" preserveAspectRatio="xMaxYMax slice" aria-hidden="true">
+      <circle cx="520" cy="80" r="120" fill="#E54465"/><rect x="380" y="230" width="150" height="150" fill="#2866B1"/>
+      <path d="M600 400H460A140 140 0 0 1 600 260Z" fill="#F2B700"/>{% for i in range(5) %}<circle cx="{{ 300 + i * 22 }}" cy="70" r="5" fill="#fff"/>{% endfor %}
+    </svg>
+    <div class="slide-in">
+      <span class="case-label">学期回顾</span>
+      <h1><span>{{ r.label }}</span>{{ g.user.name }} 的这一学期</h1>
+      {% if days_left is not none %}<p>这学期还剩 {{ days_left }} 天，下面是到今天为止的你。期末再来看，会更完整。</p>{% endif %}
+      {% if terms|length > 1 %}<nav class="term-pick" aria-label="其他学期">{% for t in terms %}<a class="chip" href="{{ url_for('recap_page', term=t) }}" {% if t == r.term %}aria-current="true"{% endif %}>{{ label(t) }}</a>{% endfor %}</nav>{% endif %}
+      <span class="scroll-hint">{{ icon('down') }}往下翻</span>
+    </div>
+  </section>
+
+  {% if not r.done %}
+  <section class="slide slide-yellow">
+    <div class="slide-in">
+      <p class="lead">这学期还没有完成的任务。</p>
+      <p>没关系，团队这学期一共完成了 <b class="num">{{ r.team.done }}</b> 个任务。去「发现」挑一个合适的，下次来这里就有你的故事了。</p>
+      <a class="btn btn-big" href="{{ url_for('index') }}">去发现页</a>
+    </div>
+  </section>
+  {% else %}
+  <section class="slide slide-yellow">
+    <div class="slide-in">
+      <p class="lead">这学期你完成了</p>
+      <p class="huge"><b class="num" data-count="{{ r.done }}">{{ r.done }}</b><span>个任务</span></p>
+      <p>攒下 <b class="num">+{{ r.gained }}</b> 经验{% if r.level_to.level > r.level_from.level %}，从 Lv.{{ r.level_from.level }}「{{ r.level_from.name }}」升到了 <b>Lv.{{ r.level_to.level }}「{{ r.level_to.name }}」</b>{% else %}，现在是 Lv.{{ r.level_to.level }}「{{ r.level_to.name }}」{% endif %}。</p>
+      {% if r.first %}<p class="small">第一个是「{{ r.first.title }}」，{{ r.first.on|md }} 验收通过。</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="slide slide-blue">
+    <div class="slide-in">
+      <p class="lead">勋章柜里多了</p>
+      <p class="huge"><b class="num" data-count="{{ r.done }}">{{ r.done }}</b><span>枚勋章 · {{ r.kinds }} 种</span></p>
+      <div class="slide-medals">{% for key, n in r.medals %}<span style="--i:{{ loop.index0 }}">{{ medal(key, label=medals[key].name) }}<b class="num">×{{ n }}</b></span>{% endfor %}</div>
+    </div>
+  </section>
+
+  <section class="slide slide-green">
+    <div class="slide-in">
+      <p class="lead">你搭了把手的人</p>
+      <p class="huge"><b class="num" data-count="{{ r.helped|length }}">{{ r.helped|length }}</b><span>位队友</span></p>
+      <div class="slide-people">{% for name in r.helped %}<span style="--i:{{ loop.index0 }}">{{ ava(name) }}{{ name }}</span>{% endfor %}</div>
+      {% if r.published %}<p>另外，你发布的任务这学期有 <b class="num">{{ r.published }}</b> 个被队友完成了。</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="slide slide-red">
+    <div class="slide-in">
+      {% if r.tags %}
+      <p class="lead">你最常做的方向</p>
+      <p class="huge tagline"><span>#{{ r.tags[0][0] }}</span></p>
+      <div class="slide-tags">{% for tag, n in r.tags %}<span class="tag">{{ tag }}<i class="num">×{{ n }}</i></span>{% endfor %}</div>
+      {% endif %}
+      {% if r.best_week %}<p>最拼的是 {{ r.best_week.monday.month }}/{{ r.best_week.monday.day }} 那一周，一周完成了 <b class="num">{{ r.best_week.count }}</b> 个。</p>{% endif %}
+      {% if r.biggest %}<div class="slide-big">{{ medal(r.biggest.key) }}<div><small>这学期最重的一个</small><b>「{{ r.biggest.title }}」</b><small>{{ r.biggest.owner }} 发布 · +{{ r.biggest.xp }} 经验</small></div></div>{% endif %}
+    </div>
+  </section>
+
+  {% if r.praises %}
+  <section class="slide slide-paper">
+    <div class="slide-in">
+      <p class="lead">队友对你说过</p>
+      <div class="slide-quotes">{% for p in r.praises %}<blockquote style="--i:{{ loop.index0 }};--r:{{ [-1.5, 1, -0.5][loop.index0] }}deg"><p>{{ p.text }}</p><cite>{{ p.by }} · 「{{ p.title }}」</cite></blockquote>{% endfor %}</div>
+      {% if r.claps %}<p>还有 <b class="num">{{ r.claps }}</b> 次鼓掌。</p>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+
+  {% if r.titles or r.lines or r.stamp %}
+  <section class="slide slide-ink">
+    <div class="slide-in">
+      {% if r.titles %}<p class="lead">这学期解锁的称号</p>
+      <div class="slide-hanko">{% for t in r.titles %}<span style="--i:{{ loop.index0 }}">{{ hanko(t) }}<small>{{ t.how }}</small></span>{% endfor %}</div>{% endif %}
+      {% if r.lines or r.stamp %}<p class="small">游戏角：一笔画通关 {{ r.lines }} 关{% if r.stamp %}，盖章挑战最好 {{ r.stamp }} 分{% endif %}。</p>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+  {% endif %}
+
+  <section class="slide slide-team">
+    <div class="slide-in">
+      <p class="lead">整个团队这学期</p>
+      <p class="huge"><b class="num" data-count="{{ r.team.done }}">{{ r.team.done }}</b><span>个任务完成</span></p>
+      <p>{{ r.team.people }} 个人出过力。{% if r.done %}其中 {{ r.done }} 个是你做的。{% endif %}</p>
+    </div>
+  </section>
+
+  <section class="slide slide-end">
+    <div class="slide-in">
+      <div class="recap-card" aria-label="学期回顾卡片">
+        <span class="rc-term">{{ r.label }}</span>
+        <b class="rc-name">{{ g.user.name }}</b>
+        <div class="rc-nums"><span><b class="num">{{ r.done }}</b>个任务</span><span><b class="num">+{{ r.gained }}</b>经验</span><span><b class="num">{{ r.helped|length }}</b>位队友</span></div>
+        <div class="rc-medals">{% for key, n in r.medals %}{{ medal(key) }}{% endfor %}</div>
+        {% if r.praises %}<p class="rc-quote">「{{ r.praises[0].text }}」<cite>— {{ r.praises[0].by }}</cite></p>{% endif %}
+        <span class="rc-foot">搭把手 · Lv.{{ r.level_to.level }} {{ r.level_to.name }}</span>
+      </div>
+      <div class="recap-actions">
+        <button type="button" class="btn btn-big" data-save-recap>{{ icon('download') }}存成图片</button>
+        <a class="btn btn-line btn-big" href="{{ url_for('honors') }}">回成就页</a>
+      </div>
+    </div>
+  </section>
+</div>
+<script type="application/json" id="recap-data">{{ dict(term=r.label, name=g.user.name, done=r.done, gained=r.gained, helped=r.helped|length,
+  medals=r.medals, level=r.level_to.level, level_name=r.level_to.name,
+  quote=dict(text=r.praises[0].text, by=r.praises[0].by) if r.praises else none, tag=r.tags[0][0] if r.tags else none)|tojson }}</script>
+<template data-medal-template>{% for key in medals %}<span data-key="{{ key }}">{{ medal(key) }}</span>{% endfor %}</template>
+{% endblock %}

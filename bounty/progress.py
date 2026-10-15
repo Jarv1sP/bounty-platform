@@ -3,20 +3,12 @@
 Plus one shared line for the whole team: a weekly bundle filled by anyone's accepted tasks.
 """
 from datetime import datetime, timedelta, timezone
-from .honors import MEDALS
+from .honors import MEDALS, XP, task_xp  # noqa: F401  (XP 和 task_xp 也从这里给页面用)
 from .service import TEAM_TZ
 
-# 经验按工作量给：重要任务约等于八个轻量任务，愿意啃硬骨头的人升级更快；加急多 50%。
-XP = {'light': 10, 'standard': 30, 'major': 80}
 LEVEL_NAMES = ((1, '新来的帮手'), (2, '搭把手'), (4, '靠谱队友'), (6, '主力'), (9, '顶梁柱'), (12, '传说中的帮手'))
 ROWS = {'normal': ('冷色一行', ('light-normal', 'standard-normal', 'major-normal')),
         'urgent': ('暖色一行', ('light-urgent', 'standard-urgent', 'major-urgent'))}
-
-
-def task_xp(key):
-    importance, urgency = key.split('-')
-    base = XP[importance]
-    return base + base // 2 if urgency == 'urgent' else base
 
 
 def level_floor(level):
@@ -35,17 +27,18 @@ def level_info(xp):
 
 
 def person_progress(db, user_id):
-    keys = [row['medal_key'] for row in db.execute('SELECT medal_key FROM honors WHERE user_id=?', (user_id,))]
+    rows_ = db.execute('SELECT medal_key,bonus FROM honors WHERE user_id=?', (user_id,)).fetchall()
+    keys = [row['medal_key'] for row in rows_]
     counts = {key: keys.count(key) for key in MEDALS}
     rows = {name: all(counts[key] for key in members) for name, (_, members) in ROWS.items()}
-    return dict(level_info(sum(task_xp(key) for key in keys)), counts=counts, kinds=sum(1 for n in counts.values() if n),
-                total=len(keys), rows=rows, complete=all(rows.values()))
+    return dict(level_info(sum(task_xp(row['medal_key']) + row['bonus'] for row in rows_)), counts=counts,
+                kinds=sum(1 for n in counts.values() if n), total=len(keys), rows=rows, complete=all(rows.values()))
 
 
 def everyone_levels(db):
     totals = {}
-    for row in db.execute('SELECT user_id,medal_key FROM honors'):
-        totals[row['user_id']] = totals.get(row['user_id'], 0) + task_xp(row['medal_key'])
+    for row in db.execute('SELECT user_id,medal_key,bonus FROM honors'):
+        totals[row['user_id']] = totals.get(row['user_id'], 0) + task_xp(row['medal_key']) + row['bonus']
     return {user_id: level_info(xp) for user_id, xp in totals.items()}
 
 

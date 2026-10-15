@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% block title %}盖章挑战 · 搭把手{% endblock %}
+{% block body_class %}page-game{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='games.js') }}" defer></script>{% endblock %}
+{% block content %}
+<div class="wrap game-page">
+  <header class="game-head">
+    <a class="back" href="{{ url_for('play') }}">{{ icon('back') }}游戏角</a>
+    <h1>盖章挑战<span>最好 <b class="num" data-best>{{ best.score }}</b> 分 · 最高 <b class="num" data-best-combo>{{ best.combo }}</b> 连击</span></h1>
+    <span class="tickets-chip" title="游戏券">{{ icon('ticket') }}<b class="num" data-tickets>{{ tickets }}</b></span>
+  </header>
+
+  <section class="stamp-stage" data-stamp-game data-start="{{ url_for('start_stamp') }}" data-seconds="{{ seconds }}" aria-label="盖章挑战">
+    <div class="stamp-hud" aria-live="off">
+      <span class="hud-score"><b class="num" data-score>0</b>分</span>
+      <span class="hud-combo" data-combo-box><b class="num" data-combo>0</b>连击<i class="num" data-mult>×1</i></span>
+      <span class="hud-time"><i data-time></i></span>
+    </div>
+    <div class="belt" data-belt>
+      <div class="belt-floor" aria-hidden="true"></div>
+      <div class="belt-mark" aria-hidden="true"></div>
+    </div>
+    <div class="stamper" data-stamper aria-hidden="true"><span class="stamper-handle"></span><span class="stamper-head"><i>通过</i></span></div>
+    <div class="judge" data-judge aria-live="polite"></div>
+
+    <div class="stamp-cover" data-cover>
+      <div class="cover-card">
+        <span class="case-label">盖章挑战</span>
+        <h2>看准了再盖</h2>
+        <ul class="cover-rules">
+          <li><i class="mini-slip"></i>普通单子：盖在正中间是「完美」，偏一点是「不错」</li>
+          <li><i class="mini-slip urgent"></i>加急单子：跑得快，分数翻倍</li>
+          <li><i class="mini-slip void"></i>退回的单子：别盖，盖了连击清零</li>
+        </ul>
+        <p>{{ seconds }} 秒。按空格或者点一下画面盖章。连击每满 10 下，倍数涨一档。漏掉一张也会断连击。</p>
+        {% if tickets %}<button type="button" class="btn btn-big" data-go>{{ icon('play') }}用 1 张券开始</button>
+        {% else %}<a class="btn btn-big" href="{{ url_for('index') }}">券用完了，去接个任务</a>{% endif %}
+        <noscript><p class="empty">盖章挑战需要开启 JavaScript。</p></noscript>
+      </div>
+    </div>
+    <div class="stamp-cover result" data-result hidden>
+      <div class="cover-card">
+        <span class="case-label" data-result-label>结束</span>
+        <div class="result-score"><b class="num" data-final>0</b><span>分</span></div>
+        <dl class="result-stats">
+          <div><dt>最高连击</dt><dd class="num" data-final-combo>0</dd></div>
+          <div><dt>完美</dt><dd class="num" data-final-perfect>0</dd></div>
+          <div><dt>不错</dt><dd class="num" data-final-good>0</dd></div>
+          <div><dt>失手</dt><dd class="num" data-final-miss>0</dd></div>
+        </dl>
+        <div class="result-titles" data-result-titles></div>
+        <div class="result-actions">
+          <a class="btn btn-line" href="{{ url_for('play') }}">回游戏角</a>
+          <button type="button" class="btn" data-again>{{ icon('play') }}再来一局</button>
+        </div>
+      </div>
+    </div>
+  </section>
+  <p class="stamp-tip">空格 / 点画面：盖章　·　手机上点任何地方都可以</p>
+</div>
+{% endblock %}

@@ -2,17 +2,17 @@ import os
 import secrets
 import sqlite3
 import zlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from urllib.parse import unquote
 from flask import Flask, abort, flash, g, redirect, render_template, render_template_string, request, session, url_for, jsonify
 from werkzeug.security import check_password_hash, generate_password_hash
-from bounty import discover, progress
-from bounty.db import connect, initialize
-from bounty.honors import EFFORT, IMPORTANCE, URGENCY, MEDALS, medal_key
+from bounty import discover, games, progress, recap, titles
+from bounty.db import TICKETS, connect, initialize
+from bounty.honors import COLD_DAYS, EFFORT, IMPORTANCE, URGENCY, MEDALS, cold_bonus, medal_key, task_xp
 from bounty.service import (CATEGORIES, STATUSES, KINDS, MAX_INTERESTS, TEAM_TZ, InvalidAction, act, clap, create_task,
-                            dismiss, now, required, set_interests, zone)
+                            dismiss, is_cold, now, required, set_interests, waited_days, zone)
 
 PAGE_SIZE = 12
 
@@ -32,6 +32,17 @@ PRAISE = ('靠谱，一次就过', '超出预期', '救了急', '写得很清楚
 # 方向卡的颜色和图形：按标签文字算出来，同一个方向在谁的屏幕上都长一个样。第二项是压在这个颜色上的字色。
 TONES = (('#E54465', '#fff'), ('#F39800', '#1B1D2A'), ('#F2B700', '#1B1D2A'),
          ('#00A27A', '#fff'), ('#00AEE0', '#1B1D2A'), ('#2866B1', '#fff'))
+
+
+def offer_xp(task):
+    """Experience the person who finishes this task gets, including the cold-task bonus."""
+    key = medal_key(task)
+    return task_xp(key) + (cold_bonus(key) if is_cold(task) else 0)
+
+
+def cold_days(task):
+    """How many days an open task has waited, when that makes it a cold task; otherwise 0."""
+    return waited_days(task) if task['status'] == 'open' and is_cold(task) else 0
 
 
 def tag_look(tag):
@@ -94,7 +105,8 @@ def create_app(config=None):
     app.jinja_env.globals.update(categories=CATEGORIES, statuses=STATUSES, kinds=KINDS, importance_labels=IMPORTANCE,
                                  urgency_labels=URGENCY, effort_labels=EFFORT, medals=MEDALS, medal_key=medal_key,
                                  task_xp=progress.task_xp, praise_options=PRAISE, due_label=due_label, tag_look=tag_look,
-                                 max_interests=MAX_INTERESTS, local_now=lambda: datetime.now(g.tz))
+                                 max_interests=MAX_INTERESTS, local_now=lambda: datetime.now(g.tz), offer_xp=offer_xp,
+                                 cold_days=cold_days, is_cold=is_cold, title_names=titles.BY_KEY)
 
     def page_url(**changes):
         """Same page, same filters, with a few changed; empty values drop out of the URL."""
@@ -105,11 +117,14 @@ def create_app(config=None):
 
     @app.context_processor
     def context():
-        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0)
+        extra = dict(current_time=now(), mailbox=0, me=None, my_turn=0, tickets=0, my_title=None)
         if g.get('user'):
             with database() as db:
+                # 信箱里装两种东西：还没拆的勋章，和刚解锁、还没庆祝过的称号
                 extra['mailbox'] = db.execute('SELECT COUNT(*) FROM honors WHERE user_id=? AND seen_at IS NULL',
-                                              (g.user['id'],)).fetchone()[0]
+                                              (g.user['id'],)).fetchone()[0] + len(titles.unseen(db, g.user['id']))
+                extra['tickets'] = games.balance(db, g.user['id'])
+                extra['my_title'] = titles.chosen_title(db, g.user['id'])
                 extra['me'] = progress.person_progress(db, g.user['id'])
                 # 轮到我的事：我在做的、等我验收的
                 extra['my_turn'] = db.execute('''SELECT COUNT(*) FROM tasks WHERE (assignee_id=? AND status='active')
@@ -211,12 +226,30 @@ def create_app(config=None):
             feed = discover.team_feed(db, g.user['id'])
             week = discover.week_summary(db, g.tz)
             bundles = progress.team_bundles(db)
+            notes = clap_notes(db)
+            term = recap.term_of(datetime.now(timezone.utc))
+            term_left = recap.days_left(term)
         zones = [tasks[i:i + PAGE_SIZE] for i in range(0, len(tasks), PAGE_SIZE)] or [[]]
         unlockable = sum(1 for task in tasks if task['status'] == 'open' and medal_key(task) not in earned)
         return render_template('index.html', tasks=tasks, zones=zones, scope=scope, tag=tag, project=project, status=status,
                                query=query, effort=effort, unlock=unlock, batch=batch, want_batch=want_batch, counts=counts,
                                hand=hand, feed=feed, week=week, bundles=bundles, earned_keys=earned, unlockable=unlockable,
-                               top_tags=top_tags, projects=projects, tags_of=tags_of, **lanes)
+                               top_tags=top_tags, projects=projects, tags_of=tags_of, notes=notes,
+                               term=term, term_label=recap.label(term), term_left=term_left, **lanes)
+
+    def clap_notes(db):
+        """鼓掌的回声：自上次来过之后，队友又为你完成的任务鼓了掌，就在首页留一张纸条（看过就收起来）。"""
+        seen = db.execute('SELECT notes_seen_at FROM users WHERE id=?', (g.user['id'],)).fetchone()[0] or ''
+        recent = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        notes = db.execute('''SELECT t.id,t.title,COUNT(*) n,GROUP_CONCAT(u.name,'、') names,
+                (SELECT COUNT(*) FROM claps a WHERE a.task_id=t.id) total
+            FROM claps c JOIN tasks t ON t.id=c.task_id JOIN users u ON u.id=c.user_id
+            WHERE t.assignee_id=? AND c.created_at>? AND c.created_at>?
+            GROUP BY t.id ORDER BY MAX(c.created_at) DESC LIMIT 3''', (g.user['id'], seen, recent)).fetchall()
+        if notes:
+            with database(write=True) as writer:
+                writer.execute('UPDATE users SET notes_seen_at=? WHERE id=?', (now(), g.user['id']))
+        return notes
 
     def picks_for(db, want_batch=0, past_batch=0):
         """The two recommendation lanes: what you picked as directions, and what you have done before. Never the same task twice."""
@@ -302,10 +335,14 @@ def create_app(config=None):
                 kinds = [row['medal_key'] for row in db.execute(
                     'SELECT medal_key,COUNT(*) n FROM honors WHERE user_id=? GROUP BY medal_key ORDER BY n DESC', (user['id'],))]
                 team.append(dict(id=user['id'], name=user['name'], featured=shown or kinds[:3],
-                                 level=levels.get(user['id'], progress.level_info(0))))
+                                 level=levels.get(user['id'], progress.level_info(0)),
+                                 title=titles.chosen_title(db, user['id']), complete=len(kinds) == len(MEDALS)))
             team.sort(key=lambda person: (-person['level']['xp'], person['id']))
             bundles = progress.team_bundles(db)
             interests = [row['tag'] for row in db.execute('SELECT tag FROM interests WHERE user_id=? ORDER BY rowid', (g.user['id'],))]
+            title_board = titles.board(db, g.user['id'])
+            first_task = db.execute('SELECT task_id FROM honors WHERE user_id=? ORDER BY awarded_at,task_id LIMIT 1',
+                                    (g.user['id'],)).fetchone()
             # 还没拿到的勋章，告诉他现在有几个任务能拿到
             can_get = {key: 0 for key in MEDALS}
             for task in discover.open_tasks(db, g.user['id']):
@@ -320,7 +357,7 @@ def create_app(config=None):
             praised = next((award for award in got if award['praise'] and award['praise'] != '成果验收通过。'), None)
             face = praised or (got[0] if got else None)
             case[key] = dict(
-                name=info['name'], hue=info['hue'], count=len(got), xp=progress.task_xp(key) * len(got),
+                name=info['name'], hue=info['hue'], count=len(got), xp=sum(task_xp(key) + award['bonus'] for award in got),
                 each=progress.task_xp(key), kind=f'{EFFORT[importance]} · {IMPORTANCE[importance]} · {URGENCY[urgency]}',
                 first=month_day(got[-1]['awarded_at']) if got else '', can_get=can_get[key], plate=key in featured,
                 find=url_for('index', effort=importance, unlock='1') + '#browse-title',
@@ -328,10 +365,29 @@ def create_app(config=None):
                 back=dict(quote=face['praise'] if praised else face['title'], by=face['owner_name'],
                           on=month_day(face['awarded_at']), praised=bool(praised)) if face else None,
                 history=[dict(title=award['title'], by=award['owner_name'], on=month_day(award['awarded_at']), claps=award['claps'],
+                              debut=bool(first_task) and award['task_id'] == first_task[0], bonus=award['bonus'],
                               praise=award['praise'] if award['praise'] and award['praise'] != '成果验收通过。' else '',
                               task=url_for('detail', task_id=award['task_id'])) for award in got])
         return render_template('honors.html', awards=awards, by_key=by_key, featured=featured, plate_medals=plate_medals,
-                               stats=stats, team=team, bundles=bundles, rows=progress.ROWS, case=case, interests=interests)
+                               stats=stats, team=team, bundles=bundles, rows=progress.ROWS, case=case, interests=interests,
+                               title_board=title_board, term=recap.term_of(datetime.now(timezone.utc)))
+
+    @app.post('/honors/title')
+    @login_required
+    def choose_title():
+        wants_json = request.accept_mimetypes.best == 'application/json'
+        try:
+            with database(write=True) as db:
+                titles.choose(db, g.user['id'], request.form.get('title', ''))
+        except InvalidAction as error:
+            if wants_json:
+                return jsonify(error=str(error)), 400
+            flash(str(error), 'error')
+            return redirect(url_for('honors') + '#titles')
+        if wants_json:
+            return jsonify(ok=True)
+        flash('名牌上的称号换好了。', 'success')
+        return redirect(url_for('honors') + '#titles')
 
     @app.post('/honors/featured')
     @login_required
@@ -358,28 +414,135 @@ def create_app(config=None):
     def reveal_honors():
         # Read and mark in one transaction: refreshing or opening two tabs cannot replay a batch.
         with database(write=True) as db:
-            awards = db.execute("""SELECT h.task_id,h.medal_key,t.title,u.name owner,
+            awards = db.execute("""SELECT h.task_id,h.medal_key,h.bonus,t.title,t.importance,t.cold,u.name owner,
                     (SELECT body FROM events e WHERE e.task_id=h.task_id AND e.kind='accept' ORDER BY e.id DESC LIMIT 1) praise
                 FROM honors h JOIN tasks t ON t.id=h.task_id JOIN users u ON u.id=t.owner_id
                 WHERE h.user_id=? AND h.seen_at IS NULL ORDER BY h.awarded_at,h.task_id LIMIT 12""", (g.user['id'],)).fetchall()
             db.executemany('UPDATE honors SET seen_at=? WHERE task_id=? AND user_id=?',
                            [(now(), row['task_id'], g.user['id']) for row in awards])
             after = progress.person_progress(db, g.user['id'])
-        # 这一批之前是什么样：用来算"新种类""凑齐一行""升级"这些要放大庆祝的时刻
+            fresh_titles = titles.take_unseen(db, g.user['id'])
+        # 这一批之前是什么样：用来算"第一枚""新种类""凑齐一行""全收集""升级"这些要放大庆祝的时刻
         counts = dict(after['counts'])
         for row in awards:
             counts[row['medal_key']] -= 1
-        xp_before = after['xp'] - sum(progress.task_xp(row['medal_key']) for row in awards)
+        xp_before = after['xp'] - sum(task_xp(row['medal_key']) + row['bonus'] for row in awards)
+        total_before = after['total'] - len(awards)
         items = []
-        for row in awards:
+        for index, row in enumerate(awards):
             first = counts[row['medal_key']] == 0
             counts[row['medal_key']] += 1
             completed_row = next((label for label, members in progress.ROWS.values()
                                   if row['medal_key'] in members and first and all(counts[k] for k in members)), None)
-            items.append(dict(row, name=MEDALS[row['medal_key']]['name'], xp=progress.task_xp(row['medal_key']),
-                              first=first, row=completed_row, tier='row' if completed_row else ('new' if first else 'plain')))
+            everything = first and all(counts.values())
+            items.append(dict(task_id=row['task_id'], medal_key=row['medal_key'], title=row['title'], owner=row['owner'],
+                              praise=row['praise'], name=MEDALS[row['medal_key']]['name'],
+                              xp=task_xp(row['medal_key']) + row['bonus'], bonus=row['bonus'],
+                              tickets=TICKETS[row['importance']] + row['cold'], debut=total_before == 0 and index == 0,
+                              first=first, row=completed_row,
+                              tier='all' if everything else 'row' if completed_row else 'new' if first else 'plain'))
         return jsonify(awards=items, before=progress.level_info(xp_before),
+                       titles=[dict(key=t['key'], name=t['name'], how=t['how'], color=t['color']) for t in fresh_titles],
                        after={k: after[k] for k in ('xp', 'level', 'name', 'into', 'span', 'to_next', 'percent', 'kinds', 'complete')})
+
+    # ---------------- 游戏角：做任务攒券，券换一局小游戏；游戏只解锁称号，不给经验和勋章 ----------------
+    def json_error(error):
+        return jsonify(error=str(error)), 400
+
+    @app.get('/play')
+    @login_required
+    def play():
+        with database() as db:
+            state = games.lines_state(db, g.user['id'])
+            best = games.stamp_best(db, g.user['id'])
+            game_titles = [item for item in titles.board(db, g.user['id']) if item['key'] in games.GAME_TITLES]
+            earned = db.execute("""SELECT k.delta,k.created_at,t.title,t.cold FROM tickets k LEFT JOIN tasks t ON t.id=k.task_id
+                WHERE k.user_id=? AND k.delta>0 ORDER BY k.id DESC LIMIT 4""", (g.user['id'],)).fetchall()
+        return render_template('play.html', lines=state, best=best, game_titles=game_titles, earned=earned,
+                               ticket_rule=TICKETS, levels=games.LEVELS)
+
+    @app.get('/play/lines')
+    @login_required
+    def play_lines():
+        with database() as db:
+            state = games.lines_state(db, g.user['id'])
+        wanted = request.args.get('level', '')
+        unsolved = [n for n in range(1, state['unlocked'] + 1) if n not in state['solved']]
+        level = int(wanted) if wanted.isdigit() else (unsolved[0] if unsolved else state['unlocked'])
+        if not 1 <= level <= state['unlocked']:
+            return redirect(url_for('play_lines'))
+        name, nodes, edges = games.LEVELS[level - 1]
+        return render_template('lines.html', state=state, level=level, name=name, levels=games.LEVELS,
+                               board=dict(nodes=nodes, edges=edges))
+
+    @app.post('/play/lines/unlock')
+    @login_required
+    def unlock_lines():
+        try:
+            level = games.unlock_level(app.config['DATABASE'], g.user['id'])
+        except InvalidAction as error:
+            return json_error(error)
+        return jsonify(level=level, url=url_for('play_lines', level=level))
+
+    @app.post('/play/lines/<int:level>')
+    @login_required
+    def solve_lines(level):
+        raw = request.form.get('stroke', '')
+        try:
+            stroke = [int(part) for part in raw.split(',')] if raw else []
+        except ValueError:
+            return json_error('笔画数据不对。')
+        try:
+            result = games.solve_level(app.config['DATABASE'], g.user['id'], level, stroke)
+        except InvalidAction as error:
+            return json_error(error)
+        state = result['state']
+        return jsonify(first=result['first'], titles=result['titles'], solved=len(state['solved']), total=state['total'],
+                       next=url_for('play_lines', level=level + 1) if level < state['unlocked'] else None,
+                       can_unlock=level == state['unlocked'] < state['total'])
+
+    @app.get('/play/stamp')
+    @login_required
+    def play_stamp():
+        with database() as db:
+            best = games.stamp_best(db, g.user['id'])
+        return render_template('stamp.html', best=best, seconds=games.STAMP_SECONDS)
+
+    @app.post('/play/stamp/start')
+    @login_required
+    def start_stamp():
+        try:
+            run = games.start_stamp(app.config['DATABASE'], g.user['id'])
+        except InvalidAction as error:
+            return json_error(error)
+        return jsonify(run=run, finish=url_for('finish_stamp', run_id=run))
+
+    @app.post('/play/stamp/<int:run_id>')
+    @login_required
+    def finish_stamp(run_id):
+        try:
+            score, combo = (int(request.form.get(name, '')) for name in ('score', 'combo'))
+        except ValueError:
+            return json_error('分数不对，没有记录。')
+        try:
+            result = games.finish_stamp(app.config['DATABASE'], g.user['id'], run_id, score, combo)
+        except InvalidAction as error:
+            return json_error(error)
+        return jsonify(result)
+
+    # ---------------- 学期回顾 ----------------
+    @app.get('/recap')
+    @login_required
+    def recap_page():
+        current = recap.term_of(datetime.now(timezone.utc))
+        term = request.args.get('term') or current
+        if not recap.bounds(term):
+            abort(404)
+        with database() as db:
+            data = recap.build(db, g.user['id'], term)
+            terms = recap.terms(db, g.user['id'])
+        return render_template('recap.html', recap=data, terms=terms, current=current, label=recap.label,
+                               days_left=recap.days_left(term) if term == current else None)
 
     @app.get('/tasks/<int:task_id>')
     @login_required
@@ -395,6 +558,12 @@ def create_app(config=None):
             claps = db.execute('SELECT COUNT(*) n, COALESCE(SUM(user_id=?),0) mine FROM claps WHERE task_id=?',
                                (g.user['id'], task_id)).fetchone()
             earned = discover.earned_keys(db, g.user['id'])
+            # 新人第一单：认领人还没有任何勋章时，提醒发布者多给一点鼓励
+            first_timer = bool(task['assignee_id']) and task['status'] in ('active', 'review') and not db.execute(
+                'SELECT 1 FROM honors WHERE user_id=?', (task['assignee_id'],)).fetchone()
+            debut = bool(award) and not db.execute(
+                'SELECT 1 FROM honors WHERE user_id=? AND (awarded_at<? OR (awarded_at=? AND task_id<?))',
+                (award['user_id'], award['awarded_at'], award['awarded_at'], task_id)).fetchone()
             why = []
             if task['status'] == 'open' and task['owner_id'] != g.user['id']:
                 why = next((pick['reasons'] for pick in discover.recommend(db, g.user['id'], limit=100)
@@ -403,7 +572,8 @@ def create_app(config=None):
         if feedback and feedback['task_id'] != task_id:
             feedback = None
         return render_template('detail.html', task=task, events=events, award=award, feedback=feedback, tags=tags,
-                               claps=claps, new_kind=medal_key(task) not in earned, why=why[:3])
+                               claps=claps, new_kind=medal_key(task) not in earned, why=why[:3], first_timer=first_timer,
+                               debut=debut)
 
     @app.post('/tasks/<int:task_id>/clap')
     @login_required

@@ -21,7 +21,7 @@
 {% macro pick_card(pick, i, lane) -%}
 {%- set task = pick.task -%}{%- set key = medal_key(task) -%}{%- set left = due_label(task.deadline) -%}
 {%- set sticker_colors = {'unlock': '#F39800', 'skill': '#00A27A', 'similar': '#00A27A', 'project': '#2866B1', 'new-project': '#2866B1',
-                          'interest': '#00AEE0', 'urgent': '#E54465', 'quick': '#00A27A'} -%}
+                          'interest': '#00AEE0', 'urgent': '#E54465', 'quick': '#00A27A', 'cold': '#9C6B3F'} -%}
 <article class="pick" style="--i:{{ i }};--hue:{{ medals[key].hue }}" data-pick="{{ task.id }}">
   <a class="cover" href="{{ url_for('detail', task_id=task.id) }}" aria-label="{{ task.title }}"></a>
   <div class="pick-field">{{ field_art(i + (1 if lane == 'want' else 0)) }}
@@ -33,7 +33,7 @@
     <span class="kicker">{{ task.project or (pick.tags[0] if pick.tags else '') }}<span>·</span>{{ effort_labels[task.importance] }}<span>·</span><span class="{{ 'soon' if left[1] }}">{{ left[0] }}</span></span>
     <h3>{{ task.title }}</h3>
     <p class="goal">{{ task.description }}</p>
-    <div class="pick-foot">{{ ava(task.owner_name, task.owner_id) }}<span>{{ task.owner_name }}</span><span class="xp">+{{ task_xp(key) }} 经验</span>
+    <div class="pick-foot">{{ ava(task.owner_name, task.owner_id) }}<span>{{ task.owner_name }}</span><span class="xp">+{{ offer_xp(task) }} 经验</span>
       <form method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-quick-claim>{{ csrf() }}<button class="btn btn-sm">认领</button></form></div>
   </div>
 </article>

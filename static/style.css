@@ -257,7 +257,7 @@ html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="of
   .icon-btn{width:36px;height:36px}
   .account{height:36px}
   .lv{height:26px}
-  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(4,1fr);padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line)}
+  .tabbar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(5,1fr);padding:6px 8px calc(6px + env(safe-area-inset-bottom,0px));background:rgba(255,255,255,.96);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-top:1px solid var(--line)}
   .tabbar a{position:relative;display:grid;justify-items:center;gap:2px;padding:4px 0;font-size:11px;font-weight:700;color:var(--faint)}
   .tabbar a svg{width:24px;height:24px}
   .tabbar a[aria-current]{color:var(--ink)}
@@ -271,3 +271,37 @@ html[data-motion="off"] *,html[data-motion="off"] *::before,html[data-motion="of
   .plate.big .plate-name{font-size:30px}
   .plate.big .plate-medals .medal,.plate.big .plate-slot{width:56px;height:56px}
 }
+
+/* ---------- 称号印章（判子）：四个字两列、三个字一列，从右往左读 ---------- */
+.hanko{display:inline-grid;place-items:center;flex:none;padding:.22em;border:2.5px solid var(--c,var(--red));border-radius:7px;background:#fff;color:var(--c,var(--red));transform:rotate(-6deg);font-size:15px;line-height:1}
+.hanko i{font-style:normal;font-weight:900;writing-mode:vertical-rl;letter-spacing:.04em;line-height:1.08}
+.hanko.n4 i{height:2.2em}
+.hanko.n3 i{height:3.3em}
+.hanko.n2 i,.hanko.n1 i{height:auto}
+.hanko.n1{width:1.9em;height:1.9em;padding:0;border-radius:50%}
+.hanko.n1 i{writing-mode:horizontal-tb}
+.hanko.ghost{--c:var(--line-2);background:transparent;border-style:dashed;color:var(--faint)}
+.toast .hanko{font-size:11px}
+
+/* 游戏券数 */
+.ticket-count{display:inline-block;font:800 11px/18px var(--num);font-style:normal;min-width:18px;padding:0 5px;text-align:center;border-radius:9px;background:var(--yellow);color:var(--ink)}
+.tabbar .ticket-count{position:absolute;top:0;left:calc(50% + 6px)}
+
+/* 名牌上的印章和全收集金边 */
+.plate-seal{position:absolute;top:14px;right:16px;z-index:1;font-size:13px}
+.plate.big .plate-seal{top:20px;right:22px;font-size:19px}
+.plate.small .plate-seal{font-size:10.5px;top:10px;right:10px}
+.plate.complete{box-shadow:inset 0 0 0 4px var(--yellow),inset 0 0 0 7px #fff}
+.plate.complete::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(115deg,transparent 40%,rgba(255,255,255,.35) 50%,transparent 60%) 150% 0/250% 100% no-repeat;animation:plate-shine 6s var(--arrive) infinite}
+@keyframes plate-shine{0%,70%{background-position:150% 0}100%{background-position:-60% 0}}
+.plate-crown{position:absolute;left:50%;top:0;transform:translateX(-50%);z-index:1;padding:0 12px;border-radius:0 0 10px 10px;background:var(--yellow);color:var(--ink);font-size:11px;font-weight:800;line-height:20px;letter-spacing:.1em}
+.plate.small .plate-crown{font-size:10px;line-height:17px}
+
+/* 颁奖里的称号、券和「初」 */
+.award-seal{display:grid;place-items:center;width:176px;height:176px;margin:6px 0 2px}
+.award-seal .hanko{font-size:44px;border-width:5px;border-radius:14px;box-shadow:0 10px 30px rgba(27,29,42,.12)}
+.award-seal .hanko.n1{font-size:60px}
+.award-tickets{display:inline-block;margin-left:8px;padding:0 7px;border-radius:999px;background:var(--yellow);color:var(--ink);font:800 11.5px/20px var(--num);font-style:normal}
+.award-debut{position:absolute;right:-6px;top:-6px;font-size:22px;box-shadow:0 4px 12px rgba(27,29,42,.2)}
+.award-tier.gold,.case-label.gold{background:linear-gradient(135deg,#F2B700,#FFE07A 50%,#F2B700);box-shadow:0 0 0 2px var(--ink)}
+.award-kind b{color:#9C6B3F}

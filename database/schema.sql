@@ -1,4 +1,8 @@
 -- SQLite schema; see bounty/db.py for migrations.
+-- Columns that bounty/db.py adds to older databases on startup:
+--   tasks.project TEXT, tasks.cold INTEGER NOT NULL DEFAULT 0
+--   honors.bonus INTEGER NOT NULL DEFAULT 0
+--   users.title_key TEXT, users.notes_seen_at TEXT
 
 CREATE TABLE IF NOT EXISTS users (
  id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE, password TEXT NOT NULL
@@ -54,4 +58,35 @@ CREATE TABLE IF NOT EXISTS claps (
  user_id INTEGER NOT NULL REFERENCES users(id),
  created_at TEXT NOT NULL,
  PRIMARY KEY(task_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS titles_seen (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ key TEXT NOT NULL,
+ seen_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,key)
+);
+CREATE TABLE IF NOT EXISTS tickets (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ delta INTEGER NOT NULL,
+ reason TEXT NOT NULL,
+ task_id INTEGER REFERENCES tasks(id),
+ ref TEXT,
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tickets_by_user ON tickets(user_id);
+CREATE TABLE IF NOT EXISTS game_runs (
+ id INTEGER PRIMARY KEY,
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ game TEXT NOT NULL,
+ started_at TEXT NOT NULL,
+ finished_at TEXT,
+ score INTEGER,
+ combo INTEGER
+);
+CREATE TABLE IF NOT EXISTS lines_solved (
+ user_id INTEGER NOT NULL REFERENCES users(id),
+ level INTEGER NOT NULL,
+ solved_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,level)
 );

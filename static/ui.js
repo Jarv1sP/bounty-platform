@@ -284,66 +284,94 @@
       const response = await fetch(url, {method: 'POST', body: new URLSearchParams({csrf}), headers: {Accept: 'application/json'}});
       data = await response.json();
     } catch { return; }
-    if (!data.awards?.length) return;
+    const awards = data.awards || [];
+    const fresh = data.titles || [];
+    if (!awards.length && !fresh.length) return;
     // 柜子（case.js）要先听到"开始颁奖"，等页面上的脚本都跑完再开始
     if (document.readyState === 'loading') await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once: true}));
     const template = document.querySelector('template[data-medal-template]');
     const medalSvg = key => template.content.querySelector(`[data-key="${key}"]`).innerHTML;
     const items = dialog.querySelector('[data-award-items]');
     const label = dialog.querySelector('[data-award-label]');
-    const awards = data.awards;
+    const featureButton = dialog.querySelector('[data-award-feature]');
+    // 先一枚枚发勋章，再一个个盖称号
+    const queue = [...awards.map(award => ({type: 'medal', ...award})), ...fresh.map(title => ({type: 'title', ...title}))];
     const xpTotal = awards.reduce((sum, award) => sum + award.xp, 0);
-    const leveled = data.after.level > data.before.level;
+    const ticketTotal = awards.reduce((sum, award) => sum + award.tickets, 0);
+    const leveled = awards.length && data.after.level > data.before.level;
     let index = 0;
     let skipped = !motionOn();
     let timers = [];
     const later = (fn, ms) => { if (skipped) { fn(); return; } timers.push(setTimeout(fn, ms * SLOW)); };
 
     // 列表写全：读屏和"看一眼都拿到了什么"都能直接读到
-    items.innerHTML = `<ol class="sr-only">${awards.map(a => `<li>${a.name}：${a.title}</li>`).join('')}</ol><div class="award-show"></div>`;
+    items.innerHTML = `<ol class="sr-only">${queue.map(item => `<li>${item.type === 'title' ? `称号：${escapeHtml(item.name)}` : `${item.name}：${escapeHtml(item.title)}`}</li>`).join('')}</ol><div class="award-show"></div>`;
     const show = items.querySelector('.award-show');
+    const counter = () => queue.length > 1 ? `<span class="award-count">${index + 1} / ${queue.length}</span>` : '';
+
+    function summary(final) {
+      if (!final || queue.length < 2) return queue[index].type === 'title' ? '解锁称号' : '验收通过';
+      const parts = [];
+      if (awards.length) parts.push(`${awards.length} 枚勋章 · +${xpTotal} 经验`);
+      if (fresh.length) parts.push(`${fresh.length} 个称号`);
+      return `一共 ${parts.join(' · ')}`;
+    }
 
     function render(award, final) {
-      const tier = {row: `${award.row}集齐！`, new: '新的一种'}[award.tier] || '';
+      const tier = award.debut ? '你的第一枚勋章' : {all: '全收集！六种都齐了', row: `${award.row}集齐！`, new: '新的一种'}[award.tier] || '';
       const praise = award.praise && award.praise !== '成果验收通过。' ? award.praise : '';
       show.innerHTML = `
-        <div class="award-medal">${medalSvg(award.medal_key)}<div class="burst">${burstPieces(award)}</div></div>
-        ${tier ? `<span class="award-tier">${tier}</span>` : ''}
+        <div class="award-medal">${medalSvg(award.medal_key)}<div class="burst">${burstPieces(award)}</div>${award.debut ? '<span class="hanko n1 award-debut" style="--c:#E54465"><i>初</i></span>' : ''}</div>
+        ${tier ? `<span class="award-tier${award.tier === 'all' ? ' gold' : ''}">${tier}</span>` : ''}
         <h2 class="award-name" id="award-title">${award.name}</h2>
-        <p class="award-kind">「${escapeHtml(award.title)}」 · ${escapeHtml(award.owner)} 验收</p>
+        <p class="award-kind">「${escapeHtml(award.title)}」 · ${escapeHtml(award.owner)} 验收${award.bonus ? ` · <b>冷门 +${award.bonus}</b>` : ''}</p>
         ${praise ? `<p class="award-praise">${escapeHtml(praise)}<cite>— ${escapeHtml(award.owner)}</cite></p>` : ''}
-        <div class="award-meter" data-meter><span class="lv num" data-lv>Lv.${data.before.level}</span><span class="bar" style="--fill:var(--yellow)"><i style="width:${data.before.percent}%"></i></span><em><span data-xp>+0</span> 经验</em></div>
-        ${awards.length > 1 ? `<span class="award-count">${index + 1} / ${awards.length}</span>` : ''}`;
-      label.textContent = final && awards.length > 1 ? `一共 ${awards.length} 枚 · +${xpTotal} 经验` : '验收通过';
+        <div class="award-meter" data-meter><span class="lv num" data-lv>Lv.${data.before.level}</span><span class="bar" style="--fill:var(--yellow)"><i style="width:${data.before.percent}%"></i></span><em><span data-xp>+0</span> 经验<i class="award-tickets">+<span data-tk>0</span> 张券</i></em></div>
+        ${counter()}`;
+      label.textContent = summary(final);
+      featureButton.textContent = '放上名牌';
+    }
+
+    function renderTitle(title, final) {
+      show.innerHTML = `
+        <div class="award-seal"><span class="hanko n${title.name.length}" style="--c:${title.color}"><i>${escapeHtml(title.name)}</i></span></div>
+        <span class="award-tier">新称号</span>
+        <h2 class="award-name" id="award-title">${escapeHtml(title.name)}</h2>
+        <p class="award-kind">${escapeHtml(title.how)}</p>
+        ${counter()}`;
+      label.textContent = summary(final);
+      featureButton.textContent = '盖到名牌上';
     }
 
     function burstPieces(award) {
-      if (award.tier === 'plain') return '';
+      if (award.tier === 'plain' && !award.debut) return '';
       const colors = ['#00A27A', '#2866B1', '#1B1D2A', '#F2B700', '#E54465', '#00AEE0', '#F39800', '#1B1D2A'];
-      const count = award.tier === 'row' ? 14 : 8;
+      const count = {all: 24, row: 14}[award.tier] || 8;
+      const reach = award.tier === 'all' ? 170 : 120;
       return Array.from({length: count}, (_, i) => {
         const angle = (i / count) * Math.PI * 2 + (i % 2) * 0.3;
-        const distance = 120 + (i % 3) * 30;
+        const distance = reach + (i % 3) * 30;
         return `<i style="--x:${Math.round(Math.cos(angle) * distance)}px;--y:${Math.round(Math.sin(angle) * distance)}px;--s:${8 + (i % 3) * 6}px;--c:${colors[i % colors.length]};--r:${i % 3 === 1 ? '3px' : '50%'};--rot:${i * 37}deg;--delay:${i * 20}ms"></i>`;
       }).join('');
     }
 
     function sequence(award) {
-      render(award, index === awards.length - 1);
+      render(award, index === queue.length - 1);
       const medal = show.querySelector('.award-medal');
       const svg = medal.querySelector('.medal');
       const name = show.querySelector('.award-name');
       const tierTag = show.querySelector('.award-tier');
       const meter = show.querySelector('[data-meter]');
       const praise = show.querySelector('.award-praise');
-      // 总长按稀有度分档：普通 ≈0.8s，新种类 ≈1.5s，集齐一行 ≈3s
-      const hold = {plain: 0, new: 400, row: 900}[award.tier];
+      const seal = show.querySelector('.award-debut');
+      // 总长按稀有度分档：普通 ≈0.8s，新种类 ≈1.5s，集齐一行 ≈3s，全收集再长一点
+      const hold = award.tier === 'all' ? 1400 : {plain: 0, new: 400, row: 900}[award.tier];
       if (skipped) {
         svg.classList.remove('anim');
         finishMeter(meter, award, true);
         return;
       }
-      [name, tierTag, praise, meter].forEach(el => el && (el.style.opacity = 0));
+      [name, tierTag, praise, meter, seal].forEach(el => el && (el.style.opacity = 0));
       // 1) 先停在灰色虚线剪影，让人看清楚"要变成什么"
       svg.style.filter = 'grayscale(1) opacity(.35)';
       later(() => {
@@ -353,7 +381,7 @@
         play(medal, [{transform: 'scale(.6)'}, {transform: 'scale(1.1)', offset: .55}, {transform: 'scale(1.1)', offset: .7}, {transform: 'scale(1)'}], {duration: 540, easing: C});
         flash(medal);
         sfx('medal', {pitch: award.tier === 'plain' ? 1 : 1.12});
-        if (award.tier !== 'plain') medal.classList.add('go');
+        if (award.tier !== 'plain' || award.debut) medal.classList.add('go');
       }, 360);
       later(() => {
         name.style.opacity = 1;
@@ -361,9 +389,15 @@
         if (tierTag) {
           tierTag.style.opacity = 1;
           play(tierTag, [{transform: 'scale(1.8) rotate(-18deg)', opacity: 0}, {transform: 'scale(1) rotate(-3deg)', opacity: 1}], {duration: 360, easing: B});
-          if (award.tier === 'row') sfx('set');
+          if (award.tier === 'row' || award.tier === 'all') sfx('set');
+        }
+        if (seal) {   // 第一枚：右上角盖一个「初」
+          seal.style.opacity = 1;
+          play(seal, [{transform: 'scale(2.2) rotate(-30deg)', opacity: 0}, {transform: 'scale(.9) rotate(-8deg)', opacity: 1, offset: .6}, {transform: 'scale(1) rotate(-8deg)'}], {duration: 380, easing: D});
+          later(() => sfx('stamp'), 220);
         }
       }, 620 + hold / 2);
+      if (award.tier === 'all') later(() => { play(medal, [{transform: 'scale(1)'}, {transform: 'scale(1.16)'}, {transform: 'scale(1)'}], {duration: 520, easing: B}); sfx('level'); }, 620 + hold / 2 + 380);
       later(() => {
         if (praise) { praise.style.opacity = 1; play(praise, [{opacity: 0, transform: 'translateY(8px)'}, {opacity: 1, transform: 'none'}], {duration: 280, easing: C}); }
         meter.style.opacity = 1;
@@ -371,13 +405,41 @@
       }, 860 + hold);
     }
 
+    // 称号：印章从高处砸下来，停一下，横向小震
+    function titleSequence(title) {
+      renderTitle(title, index === queue.length - 1);
+      const seal = show.querySelector('.award-seal');
+      const name = show.querySelector('.award-name');
+      const tierTag = show.querySelector('.award-tier');
+      const how = show.querySelector('.award-kind');
+      if (skipped) return;
+      [seal, name, tierTag, how].forEach(el => { el.style.opacity = 0; });
+      later(() => {
+        seal.style.opacity = 1;
+        play(seal, [{transform: 'translateY(-40px) scale(2.4) rotate(-24deg)', opacity: 0}, {transform: 'scale(.94)', opacity: 1, offset: .5}, {transform: 'scale(.94)', offset: .7}, {transform: 'none'}], {duration: 520, easing: D});
+        later(() => {
+          sfx('stamp');
+          play(show, [{transform: 'translateX(3px)'}, {transform: 'translateX(-3px)'}, {transform: 'translateX(2px)'}, {transform: 'none'}], {duration: 200});
+        }, 240);
+      }, 260);
+      later(() => {
+        [tierTag, name, how].forEach((el, i) => {
+          el.style.opacity = 1;
+          play(el, [{opacity: 0, transform: 'translateY(8px)'}, {opacity: 1, transform: 'none'}], {duration: 280, delay: i * 80, easing: C});
+        });
+      }, 760);
+    }
+
     function finishMeter(meter, award, instant) {
       const xp = meter.querySelector('[data-xp]');
+      const tk = meter.querySelector('[data-tk]');
       const bar = meter.querySelector('.bar i');
       const lv = meter.querySelector('[data-lv]');
       const last = index === awards.length - 1;
       const target = last ? data.after : null;
       const gained = awards.slice(0, index + 1).reduce((sum, a) => sum + a.xp, 0);
+      const tickets = awards.slice(0, index + 1).reduce((sum, a) => sum + a.tickets, 0);
+      tk.textContent = tickets;
       if (instant) {
         xp.textContent = `+${gained}`;
         if (last) applyLevel(meter, lv, bar, true);
@@ -411,21 +473,28 @@
       glow.animate([{opacity: 0}, {opacity: 1, offset: .2}, {opacity: 0}], {duration: 360, easing: A}).finished.then(() => glow.remove());
     }
 
+    function showItem() {
+      const item = queue[index];
+      if (item.type === 'title') titleSequence(item); else sequence(item);
+    }
+
     function next() {
       timers.forEach(clearTimeout);
       timers = [];
-      sequence(awards[index]);
-      // 一枚播完、停一拍再下一枚；越稀有停得越久
-      if (index < awards.length - 1) later(() => { index += 1; next(); }, {plain: 1900, new: 2500, row: 3400}[awards[index].tier]);
+      showItem();
+      // 一个播完、停一拍再下一个；越稀有停得越久
+      const item = queue[index];
+      const wait = item.type === 'title' ? 2300 : item.tier === 'all' ? 4300 : {plain: 1900, new: 2500, row: 3400}[item.tier] + (item.debut ? 400 : 0);
+      if (index < queue.length - 1) later(() => { index += 1; next(); }, wait);
     }
 
     function skip() {
       if (skipped) return;
       skipped = true;
       timers.forEach(clearTimeout);
-      index = awards.length - 1;
+      index = queue.length - 1;
       dialog.getAnimations({subtree: true}).forEach(a => a.finish());
-      sequence(awards[index]);
+      showItem();
       dialog.querySelector('[data-award-skip]').hidden = true;
     }
 
@@ -435,8 +504,16 @@
       if (!event.target.closest('a,button')) skip();
     });
     dialog.querySelector('[data-close-awards]').addEventListener('click', event => { event.preventDefault(); close(); });
-    dialog.querySelector('[data-award-feature]').addEventListener('click', () => {
+    featureButton.addEventListener('click', async () => {
+      const item = queue[index];
       close();
+      if (item.type === 'title') {
+        // 称号：直接盖到名牌上，刷新名牌
+        const body = new URLSearchParams({csrf: document.querySelector('meta[name=csrf-token]').content, title: item.key});
+        const response = await fetch('/honors/title', {method: 'POST', body, headers: {Accept: 'application/json'}}).catch(() => null);
+        if (response?.ok) setTimeout(() => location.assign('/honors#titles'), motionOn() ? 900 : 0);
+        return;
+      }
       const editor = document.querySelector('.shelf-editor');
       if (!editor) return;
       editor.open = true;
@@ -450,12 +527,18 @@
       timers.forEach(clearTimeout);
       skipped = true;
       dialog.close();
-      // 收进勋章柜：case.js 让它们从屏幕中央飞回各自的格子
-      document.dispatchEvent(new CustomEvent('bounty:collected', {detail: {awards}}));
+      // 收进勋章柜：case.js 让它们从屏幕中央飞回各自的格子；新称号在称号墙上标出来
+      if (awards.length) document.dispatchEvent(new CustomEvent('bounty:collected', {detail: {awards}}));
+      fresh.forEach(title => document.querySelector(`[data-title-key="${title.key}"]`)?.classList.add('fresh'));
       const mailbox = document.querySelector('.mailbox');
       mailbox?.classList.remove('has-mail');
       mailbox?.querySelector('b')?.remove();
-      toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
+      if (awards.length) {
+        toast(`${medalSvg(awards[awards.length - 1].medal_key)}<span>收进勋章柜</span><em>+${xpTotal} 经验 · +${ticketTotal} 张游戏券${awards.length > 1 ? ` · ×${awards.length}` : ''}</em>`);
+        document.querySelectorAll('.ticket-count').forEach(chip => { chip.textContent = Number(chip.textContent) + ticketTotal; });
+      } else {
+        toast(`<span class="hanko n${fresh[0].name.length}" style="--c:${fresh[0].color}"><i>${escapeHtml(fresh[0].name)}</i></span><span>解锁了${fresh.length > 1 ? ` ${fresh.length} 个` : ''}称号</span>`);
+      }
     }
 
     dialog.showModal();

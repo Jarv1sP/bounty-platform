@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% from 'components/icon.html' import icon %}
+{% from 'components/ui.html' import hanko %}
+{% block title %}游戏角 · 搭把手{% endblock %}
+{% block body_class %}page-play{% endblock %}
+{% block content %}
+{% set preview = levels[6] %}
+<div class="wrap play">
+  <section class="play-hero">
+    <div class="play-hero-text">
+      <span class="case-label">游戏角</span>
+      <h1>做完任务，来玩一局</h1>
+      <p>游戏券只能靠验收通过的任务拿到：轻量 {{ ticket_rule.light }} 张、常规 {{ ticket_rule.standard }} 张、重要 {{ ticket_rule.major }} 张，冷门任务再多 1 张。
+        游戏不给经验也不给勋章，只能解锁两个称号。一局一分钟以内，玩完就回去干活吧。</p>
+    </div>
+    <div class="wallet" aria-label="还有 {{ tickets }} 张游戏券">
+      <div class="wallet-stack" style="--n:{{ [tickets, 4]|min }}" aria-hidden="true">{% for _ in range([tickets, 4]|min) %}<i style="--k:{{ loop.index0 }}">{{ icon('ticket') }}</i>{% endfor %}</div>
+      <div class="wallet-count"><b class="num">{{ tickets }}</b><span>张游戏券</span></div>
+      {% if earned %}<ol class="wallet-log">{% for row in earned %}<li><em class="num">+{{ row.delta }}</em><span>{{ row.title }}{% if row.cold %}<i>冷门</i>{% endif %}</span><time class="num">{{ row.created_at|md }}</time></li>{% endfor %}</ol>
+      {% else %}<p class="wallet-empty">新账号先送 2 张试玩。之后每验收通过一个任务就会多几张。</p>{% endif %}
+    </div>
+  </section>
+
+  {% if not tickets %}
+  <a class="no-tickets panel" href="{{ url_for('index') }}">{{ icon('ticket') }}<span><b>券用完了</b>去「发现」接一个任务，验收通过就有新的券。</span>{{ icon('arrow') }}</a>
+  {% endif %}
+
+  <section class="game-cards" aria-label="小游戏">
+    <a class="game-card game-lines" href="{{ url_for('play_lines') }}">
+      <div class="game-art" aria-hidden="true">
+        <svg viewBox="-8 -8 116 116">
+          {% for a, b in preview[2] %}<line class="{{ 'lit' if loop.index0 < 5 }}" style="--i:{{ loop.index0 }}" x1="{{ preview[1][a][0] }}" y1="{{ preview[1][a][1] }}" x2="{{ preview[1][b][0] }}" y2="{{ preview[1][b][1] }}"/>{% endfor %}
+          {% for x, y in preview[1] %}<circle cx="{{ x }}" cy="{{ y }}" r="5.5"/>{% endfor %}
+        </svg>
+      </div>
+      <div class="game-text">
+        <h2>一笔画</h2>
+        <p>一笔走完所有的线，不能走重复的路。图论里叫欧拉路径，卡住了就想想每个点连着几条线。</p>
+        <div class="game-stat"><span><b class="num">{{ lines.solved|length }}</b> / {{ lines.total }} 关</span><span>每张券解锁一关，画过的关随时重玩</span></div>
+      </div>
+      <span class="btn">{{ icon('play') }}{{ '继续' if lines.solved else '开始' }}</span>
+    </a>
+    <a class="game-card game-stamp" href="{{ url_for('play_stamp') }}">
+      <div class="game-art" aria-hidden="true">
+        <div class="mini-belt">{% for kind in ['', 'urgent', 'void', ''] %}<i class="mini-slip {{ kind }}" style="--i:{{ loop.index0 }}"></i>{% endfor %}</div>
+        <span class="mini-stamp"><i>通过</i></span>
+      </div>
+      <div class="game-text">
+        <h2>盖章挑战</h2>
+        <p>30 秒，单子从眼前滑过，看准了再盖章。连击越长分越高，退回的单子别盖。</p>
+        <div class="game-stat"><span>最好 <b class="num">{{ best.score }}</b> 分</span><span>最高 <b class="num">{{ best.combo }}</b> 连击</span><span>每局 1 张券</span></div>
+      </div>
+      <span class="btn">{{ icon('play') }}开始</span>
+    </a>
+  </section>
+
+  <section class="game-titles panel" aria-labelledby="game-titles-title">
+    <h2 class="sec" id="game-titles-title">游戏里能拿的称号<small>只有这两个，其余的称号都要靠任务</small></h2>
+    <div class="title-grid">
+      {% for item in game_titles %}
+      <div class="ttl{{ ' got' if item.done else ' locked' }}"><span class="ttl-inner">
+        {% if item.done %}{{ hanko(item) }}{% else %}<span class="hanko ghost n1"><i>?</i></span>{% endif %}
+        <span class="ttl-text"><b>{{ item.name if item.done else '？？？' }}</b><small>{{ item.how }}</small>
+          {% if not item.done %}<span class="ttl-bar"><span class="bar"><i style="width:{{ (item.have / item.need * 100)|round|int }}%"></i></span><em class="num">{{ item.have }}/{{ item.need }}</em></span>{% endif %}</span>
+      </span></div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

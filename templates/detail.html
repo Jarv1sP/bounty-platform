@@ -20,6 +20,7 @@
     <svg class="pick-art" viewBox="0 0 400 180" preserveAspectRatio="xMaxYMid slice" aria-hidden="true"><path d="M300 180 360 40H400V180Z" fill="#fff"/><path d="M268 180 328 40" stroke="#1B1D2A" stroke-width="8" stroke-linecap="round"/><circle cx="236" cy="58" r="11" fill="#1B1D2A"/></svg>
     <div>
       {% if task.status == 'open' and new_kind and not owner %}<span class="sticker" style="--sticker:#F39800"><i></i>能解锁「{{ medals[key].name }}」</span>{% endif %}
+      {% if is_cold(task) %}<span class="sticker" style="--sticker:#9C6B3F"><i></i>{% if task.status == 'open' %}等了 {{ cold_days(task) }} 天没人接 · 经验 +20%{% else %}冷门任务 · 经验 +20%{% endif %}</span>{% endif %}
       <h1>{{ task.title }}</h1>
       <div class="chips">
         {% if task.project %}<span>{{ task.project }}</span>{% endif %}
@@ -29,7 +30,7 @@
         <span>{{ task.owner_name }} 发布</span>
       </div>
     </div>
-    <div class="qband-reward">{{ medal(key, 'anim', label='完成可得 ' ~ medals[key].name) }}<div><b>完成可得「{{ medals[key].name }}」</b><br><span class="xp">+{{ task_xp(key) }} 经验</span></div></div>
+    <div class="qband-reward">{{ medal(key, 'anim', label='完成可得 ' ~ medals[key].name) }}<div><b>完成可得「{{ medals[key].name }}」</b><br><span class="xp">+{{ offer_xp(task) }} 经验</span></div></div>
   </section>
 
   <ol class="flow panel" aria-label="进度">
@@ -88,6 +89,7 @@
       {% if task.status == 'open' and not owner %}
       <form class="act panel" method="post" action="{{ url_for('task_action', task_id=task.id, action='claim') }}" data-action-form="claim">
         {{ csrf() }}<h3>想接这个任务？</h3>
+        {% if not me.total %}<p class="first-note">{{ icon('medal') }}这会是你的第一个任务。{{ task.owner_name }} 验收时会知道，第一枚勋章背面会多刻一个「初」字。</p>{% endif %}
         <div class="est"><div><small>预计投入</small><b>{{ effort_labels[task.importance] }}</b></div><div><small>截止</small><b class="{{ 'soon' if left[1] }}">{{ left[0] }}</b></div></div>
         <button class="btn">认领，我来做</button>
         <p>认领后其他人就不能再认领。做完提交成果，{{ task.owner_name }} 验收通过就算完成。</p>
@@ -105,6 +107,7 @@
       {% elif task.status == 'review' and owner %}
       <div class="act panel">
         <h3>验收 {{ task.assignee_name }} 的成果</h3>
+        {% if first_timer %}<div class="first-timer"><span class="hanko n1" style="--c:#E54465"><i>初</i></span><p>这是 <b>{{ task.assignee_name }}</b> 的第一个任务。验收时多说一句鼓励吧，这句话会刻在 TA 第一枚勋章的背面。</p></div>{% endif %}
         <form method="post" action="{{ url_for('task_action', task_id=task.id, action='accept') }}" data-action-form="accept">
           {{ csrf() }}<p>通过的话，可以选一句夸奖，会写在勋章背面。</p>
           <div class="praise">{% for text in praise_options %}<button type="button" class="chip" data-praise="{{ text }}">{{ text }}</button>{% endfor %}</div>
@@ -119,14 +122,16 @@
       {% elif task.status in ('active', 'review') %}
       <div class="act panel">
         <h3>{% if task.status == 'active' %}{{ task.assignee_name }} 正在做{% else %}等 {{ task.owner_name }} 验收{% endif %}</h3>
-        <p>{% if assignee %}已经提交，验收通过后勋章和 {{ task_xp(key) }} 经验会进你的信箱。{% else %}有问题可以在讨论区留言。{% endif %}</p>
+        <p>{% if assignee %}已经提交，验收通过后勋章和 {{ offer_xp(task) }} 经验会进你的信箱。{% else %}有问题可以在讨论区留言。{% endif %}</p>
+        {% if first_timer and owner %}<div class="first-timer"><span class="hanko n1" style="--c:#E54465"><i>初</i></span><p>这是 <b>{{ task.assignee_name }}</b> 的第一个任务，有空的话在讨论区给点提示。</p></div>{% endif %}
         {% if assignee %}<div class="ghost-medal">{{ medal(key, ghost=true) }}这枚还是虚线的，验收通过就变实心。</div>{% endif %}
       </div>
       {% else %}
       <div class="done-card panel">
         {{ medal(key) }}
         <b>已授予 {{ task.assignee_name }}</b>
-        <small>「{{ medals[key].name }}」 · +{{ task_xp(key) }} 经验{% if award %} · {{ award.awarded_at|md }}{% endif %}</small>
+        <small>「{{ medals[key].name }}」 · +{{ task_xp(key) + (award.bonus if award else 0) }} 经验{% if award and award.bonus %}（含冷门 +{{ award.bonus }}）{% endif %}{% if award %} · {{ award.awarded_at|md }}{% endif %}</small>
+        {% if debut %}<span class="debut-note"><span class="hanko n1" style="--c:#E54465"><i>初</i></span>{{ task.assignee_name }} 的第一枚勋章</span>{% endif %}
         {% if not assignee %}
         <form method="post" action="{{ url_for('clap_task', task_id=task.id) }}" data-clap>{{ csrf() }}<button class="clap{{ ' on' if claps.mine }}" {% if claps.mine %}aria-pressed="true"{% endif %}>{{ icon('clap') }}<span>{{ claps.n }}</span></button></form>
         {% else %}<span class="clap-count" style="margin:0">{{ icon('clap') }}{{ claps.n }} 次鼓掌</span>{% endif %}
